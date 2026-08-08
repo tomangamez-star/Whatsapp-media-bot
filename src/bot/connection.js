@@ -13,12 +13,30 @@
 
 const fs = require('fs')
 const path = require('path')
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode')
 const config = require('../config')
 const bus = require('../events')
 const logger = require('../logger')
 const { handleMessage } = require('./commands')
+
+// Baileys >= 6.7 is ESM-only; a static require() of it throws ERR_REQUIRE_ESM on
+// Node < 20.19 (require(esm) default). Load it lazily via dynamic import(), which
+// works on every supported Node version (18+). `bw` is set by preloadBaileys()
+// before the first connection attempt.
+let bw = null
+
+async function preloadBaileys () {
+  if (bw) return bw
+  const mod = await import('@whiskeysockets/baileys')
+  bw = {
+    default: mod.default,
+    makeWASocket: mod.default,
+    useMultiFileAuthState: mod.useMultiFileAuthState,
+    DisconnectReason: mod.DisconnectReason,
+    fetchLatestBaileysVersion: mod.fetchLatestBaileysVersion
+  }
+  return bw
+}
 
 const SESSION_DIR = config.session.dir
 
@@ -65,6 +83,13 @@ class Connection {
     }
     fs.mkdirSync(SESSION_DIR, { recursive: true })
 
+    try {
+      await preloadBaileys()
+    } catch (err) {
+      logger.error('[conn] failed to load Baileys: %s', err.message)
+      throw err
+    }
+
     await this.connect()
   }
 
@@ -77,6 +102,8 @@ class Connection {
     bus.emitSafe('session.status', { state: this.state, at: new Date().toISOString() })
 
     try {
+      if (!bw) await preloadBaileys()
+      const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = bw
       const { version, isLatest } = await fetchLatestBaileysVersion()
       this.version = version
       logger.info('[conn] using Baileys version %s (latest: %s)', version.join('.'), isLatest)

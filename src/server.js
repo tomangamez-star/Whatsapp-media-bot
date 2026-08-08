@@ -26,9 +26,19 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e6
 })
 
-/* ─────────── build info (commit hash / version marker shown in the dashboard) ─────────── */
-const fs_build = fs.readFileSync(path.join(__dirname, '..', '.build-info'), 'utf8').trim()
-const buildInfo = { build: fs_build, node: process.version, serverTime: new Date().toISOString() }
+/* ─────────────── build info (commit hash / version marker shown in the dashboard) ─────────────── */
+// Non-fatal: never crash if .build-info is absent. Prefer Render's injected
+// RENDER_GIT_COMMIT env var, then the stamped .build-info file, then a fallback.
+function resolveBuildInfo () {
+  if (process.env.RENDER_GIT_COMMIT) return String(process.env.RENDER_GIT_COMMIT).slice(0, 12)
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, '..', '.build-info'), 'utf8').trim()
+    if (raw) return raw.slice(0, 12)
+  } catch { /* .build-info missing — not fatal */ }
+  if (process.env.SOURCE_VERSION) return String(process.env.SOURCE_VERSION).slice(0, 12)
+  return 'dev'
+}
+const buildInfo = { build: resolveBuildInfo(), node: process.version, serverTime: new Date().toISOString() }
 
 app.use(express.json({ limit: '1mb' }))
 app.use('/api', router)

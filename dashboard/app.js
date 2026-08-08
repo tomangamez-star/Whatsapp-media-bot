@@ -181,6 +181,13 @@ function renderSession (s) {
   } else {
     $('#pair-reg-error').classList.add('hidden')
   }
+  // anti-429 cooldown — warn BEFORE the user clicks "Get code" again
+  if (s.pairRateLimit && s.pairRateLimit.blocked) {
+    $('#pair-rate-limit').textContent = `⛔ WhatsApp rate-limit cooldown active — wait ${s.pairRateLimit.waitSec}s before the next pairing attempt. Repeated attempts extend the block (15–40 min).`
+    $('#pair-rate-limit').classList.remove('hidden')
+  } else {
+    $('#pair-rate-limit').classList.add('hidden')
+  }
 }
 
 /* ── stats ── */
@@ -224,10 +231,16 @@ $('#btn-pair').addEventListener('click', async () => {
     $('#pair-phone-shown').textContent = data.phone || phone
     $('#pair-result').classList.remove('hidden')
     $('#pair-err').classList.add('hidden')
+    $('#pair-rate-limit').classList.add('hidden')
     toast('Pairing code ready — enter it on your phone within ~60s', 'ok')
   } catch (ex) {
     $('#pair-err').textContent = ex.message
     $('#pair-err').classList.remove('hidden')
+    // 429 rate-limit verdict — show it prominently in the cooldown box too
+    if (/429|rate[- ]?limit/i.test(ex.message)) {
+      $('#pair-rate-limit').textContent = `⛔ ${ex.message}`
+      $('#pair-rate-limit').classList.remove('hidden')
+    }
     toast(ex.message, 'error')
   }
   btn.disabled = false

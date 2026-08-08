@@ -167,6 +167,14 @@ class Connection {
         generateHighQualityLinkPreview: false,
         markOnlineOnConnect: true,
         syncFullHistory: false,
+        // Proxy escape-hatch: WhatsApp often rejects / rate-limits pairing from
+        // datacenter IPs (Render, VPS, cloud). Baileys accepts a Node http(s)/
+        // socks agent as `agent`. Set PROXY_URL (e.g. socks5h://user:pass@host:1080
+        // or http://user:pass@host:3128) to route the WhatsApp WebSocket through a
+        // residential/mobile proxy and pair from a trusted IP. Optional — empty by
+        // default. NOTE: this only wraps the WebSocket; media downloads still use
+        // yt-dlp directly (see downloader.js for its own proxy support).
+        agent: config.session.proxyAgent,
         // Pairing-code reliability: without an explicit query timeout, a slow WA
         // reply can time out with "Error: Connection Closed" while
         // requestPairingCode() is in flight (WhiskeySockets/Baileys#2008).
@@ -216,11 +224,19 @@ class Connection {
           logger.info('[conn] connected as %s', this.phone || 'unknown')
         }
         if (connection === 'close') {
-          // ══ DIAGNOSTIC CORE ════════════════════════════════════════════════
+          // ══ DIAGNOSTIC CORE ═══════════════════════════════════════════════════════════════
           // The REAL reason a scan/pairing fails is in this disconnect detail.
           // Surfacing it (statusCode + full boom payload) is what lets us see
-          // 401 (bad session / creds rejected by WA), 428 (pairing too early),
-          // 429 (rate-limit), 515 (restart required), etc.
+          // 401 (stream/registration rejection — WhatsApp refusing the pairing
+          // handshake, typically after repeated attempts from a datacenter IP),
+          // 428 (pairing too early), 429 (rate-limit), 515 (restart required), etc.
+          //
+          // IMPORTANT SEMANTICS: `CB:failure` maps the raw HTTP statusCode from
+          // WhatsApp (socket.js line ~513): `end(new Boom('Connection Failure',
+          // { statusCode: reason }))`. A 401 here is a STREAM failure — WhatsApp
+          // rejected the connection/registration — NOT a user logout, even though
+          // DisconnectReason[401] is named "loggedOut". A genuine logout arrives
+          // via `creds.update` (loggedOut emitted), not through CB:failure.
           const boomErr = lastDisconnect?.error
           const code = boomErr?.output?.statusCode
           const reason = DisconnectReason[code] || code || 'unknown'
@@ -240,6 +256,21 @@ class Connection {
             detail ? ` detail="${detail}"` : ''
           )
 
+          // 🔑 REAL-VERDICT LABELING: the enum name for 401 ("loggedOut") is
+          // misleading here. When the disconnect arrives through a stream error /
+          // CB:failure (detail "Connection Failure"), 401 means WhatsApp REJECTED
+          // the pairing/registration handshake — the classic fingerprint of a
+          // temporary rate-limit or IP-level block after repeated attempts, NOT a
+          // user logout and NOT a corrupt session. 429 is the explicit
+          // rate-overlimit verdict. Both require waiting (15–40 min) — no code fix
+          // can bypass them; hammering retries only extends the block.
+          const isStreamFailure = /connection failure|stream errored/i.test(String(detail))
+          const isRateLimited = code === 429 || (isStreamFailure && code === 401)
+          if (isRateLimited) {
+            this.lastDisconnect.reason = 'rate-limited (WA rejected pairing — wait 15–40 min, then retry once)'
+            logger.warn('[conn] ⚠️ rate-limit / registration-rejection detected (code=%s) — waiting out the block before next attempt', code)
+          }
+
           // IMPORTANT: 401 from a *stream error* is DisconnectReason.badSession —
           // WhatsApp rejected the (corrupt/stale) session creds, NOT a user logout.
           // We must NOT wipe the session or stop retrying for it: the correct
@@ -254,12 +285,13 @@ class Connection {
 
           const shouldReconnect = !this.manualClose && !this.stopRequested && code !== DisconnectReason.loggedOut
           if (shouldReconnect) {
-            // Back off a bit longer after 429 (rate-limit) so we don't hammer WA.
-            const base = code === 429 ? 15000 : 2000
-            const delay = Math.min(60000, base * Math.pow(2, Math.min(this.connectAttempt, 5)))
-            logger.info('[conn] reconnecting in %sms (attempt %s)', delay, this.connectAttempt + 1)
+            // Back off much longer after a 429/401 stream rejection (rate-limit /
+            // temporary IP block) so we don't hammer WA and extend the ban.
+            const base = isRateLimited ? 60000 : 2000
+            const delay = Math.min(300000, base * Math.pow(2, Math.min(this.connectAttempt, 4)))
+            logger.info('[conn] reconnecting in %sms (attempt %s)%s', delay, this.connectAttempt + 1, isRateLimited ? ' — waiting out rate-limit, do NOT retry pairing yet' : '')
             setTimeout(() => this.connect(), delay)
-          } else if (code === DisconnectReason.loggedOut) {
+          } else if (code === DisconnectReason.loggedOut && !isStreamFailure) {
             this.loggedOut = true
             fs.rmSync(SESSION_DIR, { recursive: true, force: true })
             logger.warn('[conn] logged out — session cleared')

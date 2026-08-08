@@ -166,6 +166,15 @@ function renderSession (s) {
       ? 'Already connected ✅'
       : 'No QR yet — start the connection'
   }
+
+  // last-disconnect detail — the REAL reason a scan/pairing may have failed
+  const ld = s.lastDisconnect
+  if (ld && ld.code !== undefined && ld.code !== null && s.state !== 'connected') {
+    $('#pair-last-error').textContent = `Last disconnect: ${ld.code ?? '?'}${ld.reason ? ' — ' + ld.reason : ''}`
+    $('#pair-last-error').classList.remove('hidden')
+  } else if (!ld || s.state === 'connected') {
+    $('#pair-last-error').classList.add('hidden')
+  }
 }
 
 /* ── stats ── */
@@ -208,8 +217,13 @@ $('#btn-pair').addEventListener('click', async () => {
     $('#pair-code-text').textContent = data.pairingCode
     $('#pair-phone-shown').textContent = data.phone || phone
     $('#pair-result').classList.remove('hidden')
-    toast('Pairing code ready — enter it on your phone within ~60s')
-  } catch (ex) { toast(ex.message, 'error') }
+    $('#pair-err').classList.add('hidden')
+    toast('Pairing code ready — enter it on your phone within ~60s', 'ok')
+  } catch (ex) {
+    $('#pair-err').textContent = ex.message
+    $('#pair-err').classList.remove('hidden')
+    toast(ex.message, 'error')
+  }
   btn.disabled = false
   btn.textContent = 'Get code'
 })

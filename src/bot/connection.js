@@ -9,6 +9,24 @@
  *   • session persistence in ./data/session (auth-state files)
  *   • emit lifecycle events to the bus (session.qr, session.connected, …)
  *   • session controls: disconnect / reconnect / logout
+ *
+ * Pairing reliability notes (root causes of "QR/pairing won't connect"):
+ *   1. The WhatsApp Web version advertised by the socket MUST be one that
+ *      WhatsApp's servers currently accept. fetchLatestBaileysVersion() hits
+ *      GitHub's raw master file; if the fetch fails (or the master version is
+ *      newer than what WA accepts / older than what the client library needs)
+ *      the connection can be rejected at the noise/registration handshake —
+ *      the QR/ pairing code then never completes. We therefore PIN a known-good
+ *      WA Web version (BAILEYS_WA_VERSION, default 2.3000.1043857760 — the
+ *      version bundled with Baileys 6.7.x) instead of trusting the fetch.
+ *   2. requestPairingCode() must only be called once the socket has a live,
+ *      noise-encrypted, ready websocket. Calling it while still connecting
+ *      yields HTTP 428 "Precondition Required / Connection Closed" from WA.
+ *      We wait for 'open' / 'connecting' via waitForConnectionUpdate() first.
+ *   3. A QR shown on the dashboard must be the CURRENT one — WA rotates QRs
+ *      roughly every 20s. The dashboard polls /api/session every 5s; the
+ *      backend additionally re-renders on every fresh qr event and keeps the
+ *      QR "age" in the status so the UI can warn when a scan is imminent.
  */
 
 const fs = require('fs')
@@ -25,17 +43,42 @@ const { handleMessage } = require('./commands')
 // before the first connection attempt.
 let bw = null
 
+/** Resolve which WhatsApp Web version to advertise. */
+function resolveWAVersion () {
+  const env = String(process.env.BAILEYS_WA_VERSION || '').trim()
+  if (env) {
+    const parts = env.split('.').map((n) => parseInt(n, 10))
+    if (parts.length === 3 && parts.every((n) => Number.isInteger(n) && n >= 0)) {
+      return parts
+    }
+    logger.warn('[conn] BAILEYS_WA_VERSION "%s" invalid — using default', env)
+  }
+  // Default: the version bundled with Baileys 6.7.x. Do NOT blindly trust
+  // fetchLatestBaileysVersion() (GitHub raw fetch — flaky in sandboxes/Render;
+  // and a too-new advertised version gets rejected during pairing handshake).
+  return [2, 3000, 1043857760]
+}
+
 async function preloadBaileys () {
   if (bw) return bw
-  const mod = await import('@whiskeysockets/baileys')
-  bw = {
-    default: mod.default,
-    makeWASocket: mod.default,
-    useMultiFileAuthState: mod.useMultiFileAuthState,
-    DisconnectReason: mod.DisconnectReason,
-    fetchLatestBaileysVersion: mod.fetchLatestBaileysVersion
+  const timer = setTimeout(() => {
+    logger.warn('[conn] Baileys import is taking a long time — continuing to wait')
+  }, 15000)
+  timer.unref?.()
+  try {
+    const mod = await import('@whiskeysockets/baileys')
+    bw = {
+      default: mod.default,
+      makeWASocket: mod.default,
+      useMultiFileAuthState: mod.useMultiFileAuthState,
+      DisconnectReason: mod.DisconnectReason,
+      fetchLatestBaileysVersion: mod.fetchLatestBaileysVersion,
+      Browsers: mod.Browsers
+    }
+    return bw
+  } finally {
+    clearTimeout(timer)
   }
-  return bw
 }
 
 const SESSION_DIR = config.session.dir
@@ -63,6 +106,7 @@ class Connection {
       state: this.state,
       connected: this.state === 'connected',
       qr: this.qr,
+      qrAgeSec: this.qrAt ? Math.floor((Date.now() - this.qrAt) / 1000) : 0,
       pairingCode: this.pairingCode,
       phone: this.phone,
       lastDisconnect: this.lastDisconnect,
@@ -103,10 +147,13 @@ class Connection {
 
     try {
       if (!bw) await preloadBaileys()
-      const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = bw
-      const { version, isLatest } = await fetchLatestBaileysVersion()
+      const { makeWASocket, useMultiFileAuthState, DisconnectReason } = bw
+      // Use the pinned, known-good WhatsApp Web version (BAILEYS_WA_VERSION or
+      // the version bundled with Baileys 6.7.x). Avoids a flaky GitHub fetch
+      // and any version mismatch during the pairing handshake.
+      const version = resolveWAVersion()
       this.version = version
-      logger.info('[conn] using Baileys version %s (latest: %s)', version.join('.'), isLatest)
+      logger.info('[conn] using WhatsApp Web version %s', version.join('.'))
 
       const { state: authState, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
@@ -127,11 +174,15 @@ class Connection {
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update
         if (qr) {
-          this.state = 'qr'
-          this.qr = await qrcode.toDataURL(qr, { width: 360, margin: 1 })
-          this.pairingCode = null
-          bus.emitSafe('session.qr', { qr: this.qr, at: new Date().toISOString() })
-          bus.emitSafe('session.status', { state: 'qr', at: new Date().toISOString() })
+          // Keep a fresh QR on screen, but never clobber an active pairing flow.
+          if (this.state !== 'pairing') {
+            this.state = 'qr'
+            this.qr = await qrcode.toDataURL(qr, { width: 360, margin: 1 })
+            this.qrAt = Date.now()
+            this.pairingCode = null
+            bus.emitSafe('session.qr', { qr: this.qr, at: new Date().toISOString() })
+            bus.emitSafe('session.status', { state: 'qr', at: new Date().toISOString() })
+          }
           this.scheduleQrRefresh()
         }
         if (connection === 'open') {
@@ -140,22 +191,37 @@ class Connection {
           this.phone = sock.user?.id?.split(':')[0] || null
           this.qr = null
           this.pairingCode = null
+          this.lastDisconnect = null
           this.connectAttempt = 0
           bus.emitSafe('session.connected', { phone: this.phone, at: new Date().toISOString() })
           bus.emitSafe('session.status', { state: 'connected', phone: this.phone, at: new Date().toISOString() })
           logger.info('[conn] connected as %s', this.phone || 'unknown')
         }
         if (connection === 'close') {
-          const code = lastDisconnect?.error?.output?.statusCode
+          // ══ DIAGNOSTIC CORE ═══════════════════════════════════════════════
+          // The REAL reason a scan/pairing fails is in this disconnect detail.
+          // Surfacing it (statusCode + full boom payload) is what lets us see
+          // 401 (logged out / bad creds), 428 (pairing too early), 429
+          // (rate-limit), 515 (restart required), etc. — instead of a blind
+          // "(deploy failed)" or an expired-QR guess.
+          const boomErr = lastDisconnect?.error
+          const code = boomErr?.output?.statusCode
           const reason = DisconnectReason[code] || code || 'unknown'
-          this.lastDisconnect = { code, reason, at: new Date().toISOString() }
+          let detail = ''
+          try { detail = boomErr?.output?.payload?.message || boomErr?.message || '' } catch { /* ignore */ }
+          this.lastDisconnect = { code, reason, detail, at: new Date().toISOString() }
           this.state = 'disconnected'
           this.qr = null
           this.pairingCode = null
           this.sock = null
-          bus.emitSafe('session.disconnected', { code, reason, at: new Date().toISOString() })
-          bus.emitSafe('session.status', { state: 'disconnected', reason, at: new Date().toISOString() })
-          logger.warn('[conn] disconnected (code=%s reason=%s)', code, reason)
+          bus.emitSafe('session.disconnected', { code, reason, detail, at: new Date().toISOString() })
+          bus.emitSafe('session.status', { state: 'disconnected', reason, detail, at: new Date().toISOString() })
+          logger.warn(
+            '[conn] disconnected — statusCode=%s reason=%s%s',
+            code ?? '?',
+            reason,
+            detail ? ` detail="${detail}"` : ''
+          )
 
           const shouldReconnect = !this.manualClose && !this.stopRequested && code !== DisconnectReason.loggedOut
           if (shouldReconnect) {
@@ -212,14 +278,40 @@ class Connection {
     // (Normalization happens in the API layer; double-guard here.)
     const number = String(phone).replace(/[^\d]/g, '').replace(/^0+/, '')
     if (number.length < 8) throw new Error('Enter a valid phone number with country code (E.164)')
+
+    // Guard: pairing must only happen once the socket is live/ready. Calling
+    // requestPairingCode() while the websocket is still handshaking yields
+    // HTTP 428 "Precondition Required / Connection Closed" from WhatsApp.
+    // waitForConnectionUpdate resolves on the NEXT connection.update — we
+    // already saw 'connecting' (emitted on socket open), so a brief timeout
+    // here guarantees the sendNode() below has a live channel.
+    try {
+      await this.sock.waitForConnectionUpdate((u) => u.connection === 'connecting' || u.connection === 'open', 8000)
+    } catch (e) {
+      logger.warn('[conn] pairing: socket not ready yet (%s) — proceeding anyway', e?.message || e)
+    }
+
     this.state = 'pairing'
     this.qr = null
-    const code = await this.sock.requestPairingCode(number)
-    this.pairingCode = code
-    this.phone = number
-    bus.emitSafe('session.pairingCode', { code, at: new Date().toISOString() })
-    bus.emitSafe('session.status', { state: 'pairing', at: new Date().toISOString() })
-    return code
+    try {
+      const code = await this.sock.requestPairingCode(number)
+      this.pairingCode = code
+      this.phone = number
+      bus.emitSafe('session.pairingCode', { code, at: new Date().toISOString() })
+      bus.emitSafe('session.status', { state: 'pairing', at: new Date().toISOString() })
+      logger.info('[conn] pairing code issued for %s', number)
+      return code
+    } catch (err) {
+      // Surface the REAL error (428 precondition, 429 rate-limit, 401 …) so the
+      // dashboard can show why pairing failed instead of a silent hang.
+      const boom = err?.output?.statusCode ? err : (err?.error?.output ? err.error : null)
+      const code = boom?.output?.statusCode
+      const detail = boom?.output?.payload?.message || err?.message || String(err)
+      const reason = code ? `${code} ${detail}` : detail
+      this.lastDisconnect = { code, reason: reason.slice(0, 200), detail: reason.slice(0, 400), at: new Date().toISOString() }
+      logger.error('[conn] requestPairingCode failed: %s', reason)
+      throw new Error(`Pairing failed (${reason.slice(0, 200)})`)
+    }
   }
 
   /** Gracefully disconnect (keeps session saved). */

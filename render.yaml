@@ -34,6 +34,10 @@ services:
       # code so national-format numbers work in the pairing flow.
       - key: DEFAULT_COUNTRY_CODE
         value: "234"
+      # WhatsApp Web version advertised by Baileys. Keep at the version bundled
+      # with Baileys 6.7.x — a mismatched version breaks the pairing handshake.
+      - key: BAILEYS_WA_VERSION
+        value: "2.3000.1043857760"
       - key: BOT_NAME
         value: WhatsApp Media Bot
       - key: MAX_CONCURRENT_DOWNLOADS

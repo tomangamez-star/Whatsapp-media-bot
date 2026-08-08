@@ -247,6 +247,16 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px
 .qr-img { width: 240px; height: 240px; image-rendering: pixelated; border-radius: 6px; }
 .qr-placeholder { color: var(--muted); font-size: 13.5px; text-align: center; }
 .pair-result { margin-top: 16px; }
+.pair-err {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(220, 60, 60, 0.08);
+  border: 1px solid rgba(220, 60, 60, 0.35);
+  color: #e06565;
+  font-size: 13px;
+  word-break: break-word;
+}
 .pair-code {
   font-size: 30px;
   font-weight: 800;

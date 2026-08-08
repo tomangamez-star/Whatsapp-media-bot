@@ -229,6 +229,8 @@ whatsapp-media-bot/
 | `CLEANUP_AFTER_MINUTES` | `120` | media retention (`0` = keep) |
 | `FORCE_LOGOUT` | `0` | wipe session on boot |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` / `WEBHOOK_ENABLED` / `WEBHOOK_EVENTS` | — | webhook defaults |
+| `DEFAULT_COUNTRY_CODE` | — | country code for national-format pairing numbers (e.g. `234` for Nigeria) |
+| `BAILEYS_WA_VERSION` | `2.3000.1043857760` | WhatsApp Web version advertised by Baileys; override only if WhatsApp rejects the default |
 | `KEEPALIVE_INTERVAL_SEC` | `300` | self-ping interval (`0` = off) |
 
 ---

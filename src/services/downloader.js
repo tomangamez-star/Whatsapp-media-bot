@@ -20,6 +20,7 @@ const config = require('../config')
 const logger = require('../logger')
 const bus = require('../events')
 const { sanitizeFilename } = require('../utils/format')
+const { resolveFfmpeg } = require('../utils/ffmpeg')
 
 const MEDIA_DIR = config.download.mediaDir
 fs.mkdirSync(MEDIA_DIR, { recursive: true })
@@ -74,6 +75,11 @@ async function runYtDlp (opts) {
   const outStem = path.join(MEDIA_DIR, `${downloadId}`)
 
   const args = ['--no-playlist', '--no-warnings', '--no-call-home', '--newline', '--no-colors']
+
+  // Point yt-dlp at the bundled static ffmpeg (audio extract / merge / remux).
+  // Falls back to a system ffmpeg on PATH if ffmpeg-static isn't installed.
+  const ffmpegBin = resolveFfmpeg()
+  if (ffmpegBin) args.push('--ffmpeg-location', ffmpegBin)
 
   if (isAudio) {
     args.push(

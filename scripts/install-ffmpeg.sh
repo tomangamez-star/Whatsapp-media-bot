@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Install ffmpeg if it is not already available.
-# Used by Render/Railway build steps and by the Dockerfile entrypoint.
-# Render's build sandbox is non-root: bare apt-get fails, so try sudo first,
-# fall back to plain apt-get (root containers), then apk (Alpine/Docker).
-set -euo pipefail
+# Best-effort system ffmpeg install (Docker / root containers / local dev).
+#
+# On Render's build sandbox (non-root, no sudo) this script is NON-FATAL:
+# the app bundles a static ffmpeg via the `ffmpeg-static` npm package and
+# passes it to yt-dlp with --ffmpeg-location, so a system ffmpeg is NOT
+# required for the app to run. This script only installs one when it can.
+set -uo pipefail
 
 if command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg already available: $(ffmpeg -version 2>/dev/null | head -1)"
   exit 0
 fi
 
-echo "ffmpeg not found - installing..."
+echo "ffmpeg not found - attempting best-effort install (non-fatal)..."
 
 run_as_root () {
   if [ "$(id -u)" = "0" ]; then
@@ -23,26 +25,20 @@ run_as_root () {
 }
 
 if command -v apt-get >/dev/null 2>&1; then
-  echo "[ffmpeg] using apt-get..."
-  if ! run_as_root apt-get update -y; then
-    echo "[ffmpeg] apt-get update failed (non-root?) - retrying as plain apt-get"
-    apt-get update -y
+  echo "[ffmpeg] trying apt-get..."
+  if run_as_root apt-get update -y 2>/dev/null && run_as_root apt-get install -y --no-install-recommends ffmpeg 2>/dev/null; then
+    echo "[ffmpeg] apt-get install succeeded"
+  else
+    echo "[ffmpeg] apt-get unavailable (non-root sandbox) - continuing without system ffmpeg"
   fi
-  if ! run_as_root apt-get install -y --no-install-recommends ffmpeg; then
-    echo "[ffmpeg] sudo install failed - retrying as plain apt-get"
-    apt-get install -y --no-install-recommends ffmpeg
-  fi
-  rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 elif command -v apk >/dev/null 2>&1; then
   echo "[ffmpeg] using apk..."
-  apk add --no-cache ffmpeg
-else
-  echo "WARNING: no package manager found - ffmpeg may be missing" >&2
+  apk add --no-cache ffmpeg 2>/dev/null && echo "[ffmpeg] apk install succeeded" || echo "[ffmpeg] apk install failed - continuing"
 fi
 
 if command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg ready: $(ffmpeg -version 2>/dev/null | head -1)"
 else
-  echo "ERROR: ffmpeg still not available after install attempt" >&2
-  exit 1
+  echo "NOTE: no system ffmpeg (expected on Render) - the app uses the bundled ffmpeg-static binary instead."
 fi
+exit 0

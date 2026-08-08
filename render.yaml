@@ -10,7 +10,9 @@ services:
     name: whatsapp-media-bot
     runtime: node
     plan: free            # change to 'starter' for guaranteed 24/7
-    buildCommand: bash scripts/install-ffmpeg.sh && npm ci --omit=dev --no-audit --no-fund
+    # ffmpeg-static is bundled via npm deps (no system install needed);
+    # install-ffmpeg.sh is best-effort and never fails the build.
+    buildCommand: bash scripts/install-ffmpeg.sh || true && npm ci --omit=dev --no-audit --no-fund
     startCommand: node src/server.js
     healthCheckPath: /api/health
     autoDeploy: true

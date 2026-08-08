@@ -44,7 +44,7 @@ Everything runs in one Node.js process and stays online 24/7 (Docker / PM2 confi
 
 ## 🚀 Quick start (local)
 
-**Requirements:** Node.js ≥ 18, ffmpeg on PATH (audio extraction / merging).
+**Requirements:** Node.js ≥ 18. On Render/Railway no system ffmpeg is needed — a static `ffmpeg-static` binary is bundled and passed to yt-dlp automatically (`--ffmpeg-location`). For local dev, ffmpeg on PATH is used as a fallback.
 
 ```bash
 # 1. install
@@ -106,7 +106,7 @@ The repo ships with **`render.yaml`** (Render Blueprint) and **`railway.json`** 
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/tomangamez-star/Whatsapp-media-bot)
 
-Replace `<your-username>` with your GitHub username after you push (below). The button auto-detects `render.yaml`, sets the env vars, runs the build (installs ffmpeg), and asks you for the admin password.
+Replace `<your-username>` with your GitHub username after you push (below). The button auto-detects `render.yaml`, sets the env vars, runs the build (npm ci — ffmpeg is bundled via `ffmpeg-static`, no system install), and asks you for the admin password.
 
 > **Note:** `render.yaml` deliberately does **not** set `PORT` — Render injects its own `PORT` and the app binds to it (config default is 3000 when unset). Overriding `PORT` on Render breaks routing/health checks.
 
@@ -241,6 +241,6 @@ Downloading copyrighted media without permission may violate terms of service an
 
 - **Pairing code fails with HTTP 429** — WhatsApp rate-limits pairing requests; wait 15–40 min and retry.
 - **`better-sqlite3` fails to build** — the bot auto-falls back to JSON storage; install build tools (`python3 make g++`) to get SQLite back.
-- **Downloads fail with "ffmpeg not found"** — install ffmpeg (`apt install ffmpeg` / `brew install ffmpeg`). In Docker it's already included.
+- **Downloads fail with "ffmpeg not found"** — the app bundles a static binary via `ffmpeg-static` (used automatically); set `FFMPEG_PATH` to override, or install system ffmpeg (`apt install ffmpeg` / `brew install ffmpeg`). In Docker it is already included.
 - **yt-dlp binary not downloading** — the wrapper auto-downloads it on first use; set `yt_dlp_binary_path` or install `yt-dlp` system-wide and it will be used.
 - **Video not sending as video message** — WhatsApp caps video messages (~15 MB / 30 s); larger files are sent as documents by design.

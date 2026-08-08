@@ -14,7 +14,6 @@ services:
     startCommand: node src/server.js
     healthCheckPath: /api/health
     autoDeploy: true
-    nodeVersion: 20.11.1
     envVars:
       - key: NODE_ENV
         value: production

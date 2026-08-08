@@ -168,12 +168,18 @@ function renderSession (s) {
   }
 
   // last-disconnect detail — the REAL reason a scan/pairing may have failed
-  const ld = s.lastDisconnect
-  if (ld && ld.code !== undefined && ld.code !== null && s.state !== 'connected') {
-    $('#pair-last-error').textContent = `Last disconnect: ${ld.code ?? '?'}${ld.reason ? ' — ' + ld.reason : ''}`
+  if (s.lastDisconnect && s.lastDisconnect.code !== undefined) {
+    $('#pair-last-error').textContent = `Last disconnect: ${s.lastDisconnect.code ?? '?'}${s.lastDisconnect.reason ? ' — ' + s.lastDisconnect.reason : ''}`
     $('#pair-last-error').classList.remove('hidden')
-  } else if (!ld || s.state === 'connected') {
+  } else {
     $('#pair-last-error').classList.add('hidden')
+  }
+  // registerError — WhatsApp's direct verdict on the last QR scan / pairing code entry
+  if (s.registerError) {
+    $('#pair-reg-error').textContent = `Last pairing result: ${s.registerError.code ?? '?'}${s.registerError.reason ? ' — ' + s.registerError.reason : ''}`
+    $('#pair-reg-error').classList.remove('hidden')
+  } else {
+    $('#pair-reg-error').classList.add('hidden')
   }
 }
 

@@ -244,6 +244,7 @@ Downloading copyrighted media without permission may violate terms of service an
 ## 🛠 Troubleshooting
 
 - **Pairing code fails with HTTP 429** — WhatsApp rate-limits pairing requests; wait 15–40 min and retry.
+- **Pairing/QR shows `401 Connection Failure`** — WhatsApp rejected the connection after too many attempts (rate-limit / bad session); wait 15–40 min or use another number. The dashboard now shows the exact statusCode under "Last disconnect".
 - **QR/pairing code "doesn't work"** — the code expires fast: the QR rotates every ~20 s (dashboard polls every 5 s) and the pairing code is valid for a short window. Scan/enter the **current** one. Also make sure the phone number uses the correct E.164 format (see above).
 - **`better-sqlite3` fails to build** — the bot auto-falls back to JSON storage; install build tools (`python3 make g++`) to get SQLite back.
 - **Downloads fail with "ffmpeg not found"** — the app bundles a static binary via `ffmpeg-static` (used automatically); set `FFMPEG_PATH` to override, or install system ffmpeg (`apt install ffmpeg` / `brew install ffmpeg`). In Docker it is already included.

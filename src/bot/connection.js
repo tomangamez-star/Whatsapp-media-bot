@@ -90,6 +90,7 @@ class Connection {
     this.qr = null // base64 data URL
     this.pairingCode = null
     this.lastDisconnect = null
+    this.registerError = null
     this.startedAt = null
     this.connectAttempt = 0
     this.manualClose = false
@@ -110,6 +111,7 @@ class Connection {
       pairingCode: this.pairingCode,
       phone: this.phone,
       lastDisconnect: this.lastDisconnect,
+      registerError: this.registerError,
       uptimeSec: this.connectedAt ? Math.floor((Date.now() - this.connectedAt) / 1000) : 0,
       version: this.version,
       mediaQueued: this.mediaQueueSize?.() ?? 0
@@ -165,6 +167,10 @@ class Connection {
         generateHighQualityLinkPreview: false,
         markOnlineOnConnect: true,
         syncFullHistory: false,
+        // Pairing-code reliability: without an explicit query timeout, a slow WA
+        // reply can time out with "Error: Connection Closed" while
+        // requestPairingCode() is in flight (WhiskeySockets/Baileys#2008).
+        defaultQueryTimeoutMs: 60000,
         logger: logger.child({ module: 'baileys' })
       })
       this.sock = sock
@@ -172,7 +178,19 @@ class Connection {
       sock.ev.on('creds.update', saveCreds)
 
       sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update
+        const { connection, lastDisconnect, qr, registerError } = update
+        // A failed registration attempt (QR/pairing rejected by WA) — surface the
+        // REAL reason (e.g. 429 rate-overlimit, 401 bad session) instead of a blind
+        // "disconnected". The dashboard shows this prominently.
+        if (registerError) {
+          const re = registerError?.output || registerError
+          this.registerError = {
+            code: re.statusCode ?? 'unknown',
+            reason: re.payload?.message || registerError?.message || String(registerError),
+            at: new Date().toISOString()
+          }
+          logger.error('[conn] registerError: %s', this.registerError.reason)
+        }
         if (qr) {
           // Keep a fresh QR on screen, but never clobber an active pairing flow.
           if (this.state !== 'pairing') {
@@ -198,12 +216,11 @@ class Connection {
           logger.info('[conn] connected as %s', this.phone || 'unknown')
         }
         if (connection === 'close') {
-          // ══ DIAGNOSTIC CORE ═══════════════════════════════════════════════
+          // ══ DIAGNOSTIC CORE ════════════════════════════════════════════════
           // The REAL reason a scan/pairing fails is in this disconnect detail.
           // Surfacing it (statusCode + full boom payload) is what lets us see
-          // 401 (logged out / bad creds), 428 (pairing too early), 429
-          // (rate-limit), 515 (restart required), etc. — instead of a blind
-          // "(deploy failed)" or an expired-QR guess.
+          // 401 (bad session / creds rejected by WA), 428 (pairing too early),
+          // 429 (rate-limit), 515 (restart required), etc.
           const boomErr = lastDisconnect?.error
           const code = boomErr?.output?.statusCode
           const reason = DisconnectReason[code] || code || 'unknown'
@@ -223,9 +240,23 @@ class Connection {
             detail ? ` detail="${detail}"` : ''
           )
 
+          // IMPORTANT: 401 from a *stream error* is DisconnectReason.badSession —
+          // WhatsApp rejected the (corrupt/stale) session creds, NOT a user logout.
+          // We must NOT wipe the session or stop retrying for it: the correct
+          // recovery is to delete the stale creds and re-pair with a fresh QR.
+          // Only a genuine logout (loggedOut emitted via creds.update, i.e. the
+          // phone removed the device) wipes the session and stops.
+          const isBadSession = code === DisconnectReason.badSession
+          if (isBadSession) {
+            logger.warn('[conn] bad session (401) — clearing stale creds so a fresh QR can be generated')
+            try { fs.rmSync(path.join(SESSION_DIR, 'creds.json'), { force: true }) } catch { /* ignore */ }
+          }
+
           const shouldReconnect = !this.manualClose && !this.stopRequested && code !== DisconnectReason.loggedOut
           if (shouldReconnect) {
-            const delay = Math.min(60000, 2000 * Math.pow(2, Math.min(this.connectAttempt, 5)))
+            // Back off a bit longer after 429 (rate-limit) so we don't hammer WA.
+            const base = code === 429 ? 15000 : 2000
+            const delay = Math.min(60000, base * Math.pow(2, Math.min(this.connectAttempt, 5)))
             logger.info('[conn] reconnecting in %sms (attempt %s)', delay, this.connectAttempt + 1)
             setTimeout(() => this.connect(), delay)
           } else if (code === DisconnectReason.loggedOut) {
@@ -309,6 +340,7 @@ class Connection {
       const detail = boom?.output?.payload?.message || err?.message || String(err)
       const reason = code ? `${code} ${detail}` : detail
       this.lastDisconnect = { code, reason: reason.slice(0, 200), detail: reason.slice(0, 400), at: new Date().toISOString() }
+      this.registerError = { code: code ?? 'unknown', reason: detail.slice(0, 300), at: new Date().toISOString() }
       logger.error('[conn] requestPairingCode failed: %s', reason)
       throw new Error(`Pairing failed (${reason.slice(0, 200)})`)
     }

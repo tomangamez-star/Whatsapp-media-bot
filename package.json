@@ -1,0 +1,39 @@
+{
+  "name": "whatsapp-media-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp media downloader bot (Baileys + yt-dlp) with realtime management dashboard",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node --check src/config.js && node --check src/events.js && node --check src/db.js && node --check src/logger.js && node --check src/utils/format.js && node --check src/utils/queue.js && node --check src/bot/connection.js && node --check src/bot/commands.js && node --check src/services/downloader.js && node --check src/services/sender.js && node --check src/services/webhooks.js && node --check src/api/index.js",
+    "test:downloader": "node scripts/test-downloader.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "bot",
+    "downloader",
+    "yt-dlp",
+    "dashboard",
+    "socket.io"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.24",
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5",
+    "yt-dlp-exec": "^1.0.2"
+  },
+  "devDependencies": {
+    "pino-pretty": "^11.2.2"
+  }
+}

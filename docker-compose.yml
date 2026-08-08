@@ -1,0 +1,22 @@
+services:
+  wa-media-bot:
+    build: .
+    container_name: wa-media-bot
+    restart: unless-stopped          # 24/7 — restarts on crash and on host reboot
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+    volumes:
+      - wa-media-bot-data:/app/data  # WhatsApp session + downloads survive restarts
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/api/health']
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  wa-media-bot-data:

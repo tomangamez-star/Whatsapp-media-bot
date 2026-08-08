@@ -1,0 +1,43 @@
+# ============================================================
+# Render Blueprint — one-click deploy
+# Deploy: https://render.com/deploy?repo=<your-github-repo-url>
+# Plan: free tier (Web Service) — sleeps after 15 min idle;
+#        keep-alive pings + healthcheck below are included;
+#        for true 24/7 use the Starter plan ($7/mo) or the
+#        Cloudflare-tunnel setup in README.
+# ============================================================
+services:
+  - type: web
+    name: whatsapp-media-bot
+    runtime: node
+    plan: free            # change to 'starter' for guaranteed 24/7
+    buildCommand: bash scripts/install-ffmpeg.sh && npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "3000"
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        value: wa-bot-admin
+        sync: false        # prompt the person deploying to set a strong one
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: BOT_NAME
+        value: WhatsApp Media Bot
+      - key: MAX_CONCURRENT_DOWNLOADS
+        value: "2"
+      - key: DEFAULT_QUALITY
+        value: "720"
+      - key: CLEANUP_AFTER_MINUTES
+        value: "120"
+      - key: KEEPALIVE_INTERVAL_SEC
+        value: "300"
+      - key: WEBHOOK_ENABLED
+        value: "false"

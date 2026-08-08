@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Media Bot — Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+</head>
+<body>
+  <!-- ═══════════ LOGIN SCREEN ═══════════ -->
+  <div id="login-view" class="login-view hidden">
+    <div class="login-card">
+      <div class="login-logo">🤖</div>
+      <h1>WhatsApp Media Bot</h1>
+      <p class="login-sub">Management dashboard</p>
+      <form id="login-form">
+        <label for="login-user">Username</label>
+        <input id="login-user" type="text" autocomplete="username" placeholder="admin" required />
+        <label for="login-pass">Password</label>
+        <input id="login-pass" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+        <p class="login-error" id="login-error"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══════════ APP SHELL ═══════════ -->
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-icon">🤖</span>
+        <div>
+          <strong>WA Media Bot</strong>
+          <small>v1.0.0</small>
+        </div>
+      </div>
+      <nav class="nav">
+        <a href="#" data-view="overview" class="nav-item active">📊 Overview</a>
+        <a href="#" data-view="pairing" class="nav-item">🔗 Pairing</a>
+        <a href="#" data-view="feed" class="nav-item">⚡ Live Feed</a>
+        <a href="#" data-view="history" class="nav-item">🕘 History</a>
+        <a href="#" data-view="settings" class="nav-item">⚙️ Settings</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="conn-pill" id="conn-pill"><span class="dot"></span><span id="conn-pill-text">…</span></div>
+        <button id="logout-btn" class="btn btn-ghost btn-sm btn-block">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- OVERVIEW -->
+      <section id="view-overview" class="view active">
+        <header class="view-head">
+          <h2>Overview</h2>
+          <p>Bot health, connection and download stats at a glance</p>
+        </header>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📥</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-downloads">0</span><span class="stat-label">Total downloads</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🎬</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-videos">0</span><span class="stat-label">Videos</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🎵</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-songs">0</span><span class="stat-label">Songs</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-completed">0</span><span class="stat-label">Completed</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-pending">0</span><span class="stat-label">In progress</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">❌</div>
+            <div class="stat-meta"><span class="stat-num" id="stat-failed">0</span><span class="stat-label">Failed</span></div>
+          </div>
+        </div>
+
+        <div class="cards-row">
+          <div class="card">
+            <h3>Connection</h3>
+            <div id="overview-conn" class="conn-detail">
+              <div class="conn-status"><span class="dot dot-lg"></span><span>Checking…</span></div>
+              <div class="kv"><span>State</span><b id="ov-state">—</b></div>
+              <div class="kv"><span>Phone</span><b id="ov-phone">—</b></div>
+              <div class="kv"><span>Uptime</span><b id="ov-uptime">—</b></div>
+              <div class="kv"><span>Baileys</span><b id="ov-version">—</b></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Quick actions</h3>
+            <div class="quick-actions">
+              <a href="#" class="btn btn-primary" data-goto="pairing">Link device</a>
+              <a href="#" class="btn btn-outline" data-goto="feed">View live feed</a>
+              <a href="#" class="btn btn-outline" data-goto="history">Browse history</a>
+            </div>
+            <div class="hint-box">
+              <strong>Commands</strong>
+              <p><code>.movie spiderman</code> · <code>.video cats</code> · <code>.yt &lt;link&gt;</code> · <code>.song imagine dragons</code> · <code>.quality 4k</code></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAIRING -->
+      <section id="view-pairing" class="view">
+        <header class="view-head">
+          <h2>Pairing</h2>
+          <p>Connect a WhatsApp account via QR code or pairing code</p>
+        </header>
+
+        <div class="cards-row">
+          <div class="card">
+            <h3>📱 QR code</h3>
+            <p class="muted">Start the connection and scan the QR in WhatsApp → Linked Devices.</p>
+            <div class="qr-box" id="qr-box">
+              <div class="qr-placeholder" id="qr-placeholder">No QR yet — start the connection</div>
+              <img id="qr-img" class="qr-img hidden" alt="WhatsApp QR" />
+            </div>
+            <button id="btn-start-qr" class="btn btn-primary btn-block">Generate QR</button>
+          </div>
+
+          <div class="card">
+            <h3>🔢 Pairing code</h3>
+            <p class="muted">Alternative to QR. Enter your phone number (country code + number, no + or spaces, e.g. <code>15551234567</code>) and type the code on your phone.</p>
+            <label for="pair-phone">Phone number (E.164)</label>
+            <div class="row">
+              <input id="pair-phone" type="tel" placeholder="15551234567" />
+              <button id="btn-pair" class="btn btn-primary">Get code</button>
+            </div>
+            <div id="pair-result" class="pair-result hidden">
+              <div class="pair-code" id="pair-code-text">—</div>
+              <p class="muted">WhatsApp → Linked Devices → <b>Link with phone number instead</b></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>⚙️ Session controls</h3>
+          <div class="row gap">
+            <button id="btn-reconnect" class="btn btn-outline">🔄 Reconnect</button>
+            <button id="btn-disconnect" class="btn btn-outline btn-danger-o">⏹ Disconnect</button>
+            <button id="btn-logout" class="btn btn-outline btn-danger-o">🗑 Logout &amp; wipe session</button>
+          </div>
+          <p class="muted small">Reconnect keeps your saved session. Logout removes it — you must pair again.</p>
+        </div>
+      </section>
+
+      <!-- LIVE FEED -->
+      <section id="view-feed" class="view">
+        <header class="view-head">
+          <h2>Live feed</h2>
+          <p>Every incoming command and bot response in real time</p>
+        </header>
+        <div class="feed-toolbar">
+          <label class="check"><input type="checkbox" id="feed-autoscroll" checked /> Autoscroll</label>
+          <button id="feed-clear" class="btn btn-ghost btn-sm">Clear</button>
+        </div>
+        <div class="feed" id="feed"></div>
+      </section>
+
+      <!-- HISTORY -->
+      <section id="view-history" class="view">
+        <header class="view-head">
+          <h2>Download history</h2>
+          <p>Every video and song request with status</p>
+        </header>
+        <div class="history-toolbar">
+          <select id="hist-type">
+            <option value="">All types</option>
+            <option value="video">🎬 Video</option>
+            <option value="audio">🎵 Song</option>
+          </select>
+          <select id="hist-status">
+            <option value="">All statuses</option>
+            <option value="completed">✅ Completed</option>
+            <option value="failed">❌ Failed</option>
+            <option value="downloading">⏳ Downloading</option>
+            <option value="queued">⏸ Queued</option>
+            <option value="sending">📤 Sending</option>
+            <option value="searching">🔍 Searching</option>
+          </select>
+          <button id="hist-refresh" class="btn btn-outline btn-sm">Refresh</button>
+          <span class="spacer"></span>
+          <span class="muted small" id="hist-count"></span>
+        </div>
+        <div class="table-wrap card">
+          <table class="table" id="hist-table">
+            <thead>
+              <tr>
+                <th>When</th><th>Type</th><th>Query / title</th><th>Quality</th><th>Progress</th><th>Status</th><th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="hist-body"><tr><td colspan="7" class="muted center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="view-settings" class="view">
+        <header class="view-head">
+          <h2>Settings</h2>
+          <p>Webhook integration to keep the bot alive &amp; receive events</p>
+        </header>
+
+        <div class="card">
+          <h3>🔔 Webhook</h3>
+          <p class="muted">The bot POSTs JSON events to your URL with an HMAC-SHA256 signature header (<code>X-WaBot-Signature</code>) when a secret is set. A webhook that replies <code>200 OK</code> is also the classic "keep-alive" ping for free hosting tiers.</p>
+          <form id="webhook-form">
+            <label for="wh-url">Webhook URL</label>
+            <input id="wh-url" type="url" placeholder="https://example.com/hooks/whatsapp-bot" />
+            <label for="wh-secret">Secret (for HMAC signature)</label>
+            <input id="wh-secret" type="password" placeholder="optional" />
+            <label for="wh-events">Events (comma separated)</label>
+            <input id="wh-events" type="text" value="command,download.started,download.completed,download.failed,session.connected,session.disconnected,bot.ready" />
+            <label class="check"><input type="checkbox" id="wh-enabled" /> Enable webhook</label>
+            <button type="submit" class="btn btn-primary">Save webhook</button>
+            <span class="toast" id="wh-toast"></span>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>ℹ️ About</h3>
+          <div class="kv">
+            <span>Database</span><b id="about-db">—</b>
+            <span>Node</span><b id="about-node">—</b>
+            <span>Server uptime</span><b id="about-uptime">—</b>
+          </div>
+          <p class="muted small">Media is downloaded with yt-dlp (YouTube, Instagram, TikTok, Vimeo, Dailymotion, SoundCloud and 1000+ sites). Videos over ~15&nbsp;MB or 30&nbsp;s are delivered as document files due to WhatsApp's video-message limits.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-root"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

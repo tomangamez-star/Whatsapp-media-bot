@@ -163,6 +163,17 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px
   border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600;
 }
 .conn-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.build-badge {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  text-align: center;
+  user-select: all;
+}
 .conn-pill.ok .dot { background: var(--ok); box-shadow: 0 0 8px rgba(46, 219, 138, 0.7); }
 .conn-pill.warn .dot { background: var(--warn); }
 .conn-pill.bad .dot { background: var(--danger); }

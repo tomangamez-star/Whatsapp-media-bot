@@ -45,7 +45,11 @@ const config = {
 
   session: {
     dir: process.env.SESSION_DIR || path.join(ROOT, 'data', 'session'),
-    forceLogout: bool(process.env.FORCE_LOGOUT, false)
+    forceLogout: bool(process.env.FORCE_LOGOUT, false),
+    // Country code used to normalize national-format phone numbers for the
+    // pairing code flow, e.g. "234" for Nigeria (07074455500 -> 2347074455500).
+    // Leave empty to accept only full E.164 numbers.
+    defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE || ''
   },
 
   data: {

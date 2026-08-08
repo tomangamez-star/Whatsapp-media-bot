@@ -32,7 +32,7 @@
         <span class="brand-icon">🤖</span>
         <div>
           <strong>WA Media Bot</strong>
-          <small>v1.0.0</small>
+          <small id="brand-version">v1.0.0</small>
         </div>
       </div>
       <nav class="nav">
@@ -44,6 +44,7 @@
       </nav>
       <div class="sidebar-foot">
         <div class="conn-pill" id="conn-pill"><span class="dot"></span><span id="conn-pill-text">…</span></div>
+        <div class="build-badge" id="build-badge" title="Deployed build (commit hash)">build: —</div>
         <button id="logout-btn" class="btn btn-ghost btn-sm btn-block">Sign out</button>
       </div>
     </aside>
@@ -127,16 +128,20 @@
           </div>
 
           <div class="card">
-            <h3>🔢 Pairing code</h3>
-            <p class="muted">Alternative to QR. Enter your phone number (country code + number, no + or spaces, e.g. <code>15551234567</code>) and type the code on your phone.</p>
-            <label for="pair-phone">Phone number (E.164)</label>
+            <h3>🔑 Pairing code</h3>
+            <p class="muted">Alternative to QR. Enter your phone number and type the code on your phone.</p>
+            <label for="pair-phone">Phone number</label>
             <div class="row">
-              <input id="pair-phone" type="tel" placeholder="15551234567" />
+              <input id="pair-phone" type="tel" placeholder="2347074455500" />
               <button id="btn-pair" class="btn btn-primary">Get code</button>
+            </div>
+            <div class="hint-box small" id="pair-format-hint">
+              <strong>Format</strong>
+              <p>Any of these work: <code>2347074455500</code> · <code>+2347074455500</code> · <code>07074455500</code> (uses country code <b id="pair-cc">234</b>). No spaces or dashes.</p>
             </div>
             <div id="pair-result" class="pair-result hidden">
               <div class="pair-code" id="pair-code-text">—</div>
-              <p class="muted">WhatsApp → Linked Devices → <b>Link with phone number instead</b></p>
+              <p class="muted">For <b id="pair-phone-shown">—</b> — enter in WhatsApp → Linked Devices → <b>Link with phone number instead</b></p>
             </div>
           </div>
         </div>
@@ -230,6 +235,7 @@
           <div class="kv">
             <span>Database</span><b id="about-db">—</b>
             <span>Node</span><b id="about-node">—</b>
+            <span>Build</span><b id="about-build">—</b>
             <span>Server uptime</span><b id="about-uptime">—</b>
           </div>
           <p class="muted small">Media is downloaded with yt-dlp (YouTube, Instagram, TikTok, Vimeo, Dailymotion, SoundCloud and 1000+ sites). Videos over ~15&nbsp;MB or 30&nbsp;s are delivered as document files due to WhatsApp's video-message limits.</p>

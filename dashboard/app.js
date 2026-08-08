@@ -68,6 +68,19 @@ function fmtUptime (s) {
   return out + sec + 's'
 }
 
+/* ── build info / version marker ── */
+
+async function loadBuildInfo () {
+  try {
+    const b = await api('/build')
+    const build = b.build || '—'
+    $('#brand-version').textContent = 'v1.0.0'
+    $('#build-badge').textContent = 'build: ' + build
+    $('#build-badge').title = 'Deployed build (commit): ' + build
+    $('#about-build').textContent = build
+  } catch { /* silent */ }
+}
+
 /* ── views ── */
 
 function showLogin () {
@@ -189,13 +202,16 @@ $('#btn-pair').addEventListener('click', async () => {
   if (phone.length < 8) { toast('Enter a valid number with country code (E.164)', 'warn'); return }
   const btn = $('#btn-pair')
   btn.disabled = true
+  btn.textContent = 'Getting code…'
   try {
     const data = await api('/session/pair', { method: 'POST', body: { phone } })
     $('#pair-code-text').textContent = data.pairingCode
+    $('#pair-phone-shown').textContent = data.phone || phone
     $('#pair-result').classList.remove('hidden')
-    toast('Pairing code ready — enter it on your phone')
+    toast('Pairing code ready — enter it on your phone within ~60s')
   } catch (ex) { toast(ex.message, 'error') }
   btn.disabled = false
+  btn.textContent = 'Get code'
 })
 
 $('#btn-reconnect').addEventListener('click', async () => {
@@ -376,6 +392,7 @@ async function boot () {
       $('#about-uptime').textContent = fmtUptime(health.uptime + (Date.now() - bootTs) / 1000)
     }, 1000)
   } catch { /* silent */ }
+  loadBuildInfo()
   loadStats()
   loadWebhook()
   bootSocket()

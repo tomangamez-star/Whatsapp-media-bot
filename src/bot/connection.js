@@ -208,12 +208,15 @@ class Connection {
   /** Request a pairing code (replaces QR flow). Returns the code string. */
   async requestPairingCode (phone) {
     if (!this.sock) throw new Error('Socket not started')
-    const number = String(phone).replace(/\D/g, '')
+    // E.164 WITHOUT "+" and WITHOUT leading zeros — e.g. "2347074455500".
+    // (Normalization happens in the API layer; double-guard here.)
+    const number = String(phone).replace(/[^\d]/g, '').replace(/^0+/, '')
     if (number.length < 8) throw new Error('Enter a valid phone number with country code (E.164)')
     this.state = 'pairing'
     this.qr = null
     const code = await this.sock.requestPairingCode(number)
     this.pairingCode = code
+    this.phone = number
     bus.emitSafe('session.pairingCode', { code, at: new Date().toISOString() })
     bus.emitSafe('session.status', { state: 'pairing', at: new Date().toISOString() })
     return code

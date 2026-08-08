@@ -26,12 +26,17 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e6
 })
 
+/* ─────────── build info (commit hash / version marker shown in the dashboard) ─────────── */
+const fs_build = fs.readFileSync(path.join(__dirname, '..', '.build-info'), 'utf8').trim()
+const buildInfo = { build: fs_build, node: process.version, serverTime: new Date().toISOString() }
+
 app.use(express.json({ limit: '1mb' }))
 app.use('/api', router)
+app.get('/api/build', (req, res) => res.json(buildInfo))
 
-// Dashboard static files at the root
+// Dashboard static files at the root — no-cache so a redeploy is seen instantly
 const dashboardDir = path.join(__dirname, '..', 'dashboard')
-app.use(express.static(dashboardDir, { index: 'index.html', maxAge: '1h' }))
+app.use(express.static(dashboardDir, { index: 'index.html', maxAge: 0, etag: true, lastModified: true }))
 
 /* ─────────── Socket.IO realtime bridge (no auth — dashboard is behind the login page) ─────────── */
 

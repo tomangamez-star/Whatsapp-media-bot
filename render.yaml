@@ -12,7 +12,7 @@ services:
     plan: free            # change to 'starter' for guaranteed 24/7
     # ffmpeg-static is bundled via npm deps (no system install needed);
     # install-ffmpeg.sh is best-effort and never fails the build.
-    buildCommand: bash scripts/install-ffmpeg.sh || true && npm ci --omit=dev --no-audit --no-fund
+    buildCommand: bash scripts/stamp-build.sh && bash scripts/install-ffmpeg.sh || true && npm ci --omit=dev --no-audit --no-fund
     startCommand: node src/server.js
     healthCheckPath: /api/health
     autoDeploy: true
@@ -29,6 +29,11 @@ services:
         sync: false        # Render prompts the person deploying to set a strong one
       - key: ADMIN_TOKEN
         generateValue: true
+      # Country code for pairing-code phone normalization.
+      # Nigeria = 234 (07074455500 -> 2347074455500). Set to your country
+      # code so national-format numbers work in the pairing flow.
+      - key: DEFAULT_COUNTRY_CODE
+        value: "234"
       - key: BOT_NAME
         value: WhatsApp Media Bot
       - key: MAX_CONCURRENT_DOWNLOADS

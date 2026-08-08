@@ -23,6 +23,7 @@ const db = require('../db')
 const bus = require('../events')
 const logger = require('../logger')
 const connection = require('../bot/connection')
+const { normalizePhone, validPhone } = require('../utils/phone')
 const { getWebhookConfig, saveConfig } = require('../services/webhooks')
 
 const router = express.Router()
@@ -89,10 +90,18 @@ router.get('/session', requireAuth, (req, res) => {
 router.post('/session/pair', requireAuth, express.json(), async (req, res) => {
   try {
     const { phone } = req.body || {}
-    if (!phone) return res.status(400).json({ error: 'phone is required (E.164, e.g. 15551234567)' })
+    // Accept "+2347074455500", "2347074455500", "002347074455500" or national
+    // format "07074455500" (resolved via DEFAULT_COUNTRY_CODE). Always sent to
+    // Baileys as bare E.164 without "+" and without leading zeros.
+    const normalized = normalizePhone(phone, config.session.defaultCountryCode)
+    if (!validPhone(normalized)) {
+      return res.status(400).json({
+        error: `Invalid phone number (got "${String(phone || '').trim()}"). Use E.164 with country code, e.g. 2347074455500 for Nigeria, or set DEFAULT_COUNTRY_CODE to enable national format (07074455500).`
+      })
+    }
     await connection.start()
-    const code = await connection.requestPairingCode(phone)
-    res.json({ pairingCode: code, hint: 'Enter this code in WhatsApp → Linked Devices → Link with phone number instead. The code refreshes live in the dashboard (5s poll).' })
+    const code = await connection.requestPairingCode(normalized)
+    res.json({ pairingCode: code, phone: normalized, hint: 'Enter this code in WhatsApp → Linked Devices → Link with phone number instead. The code refreshes live in the dashboard (5s poll).' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

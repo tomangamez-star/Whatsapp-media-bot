@@ -25,8 +25,7 @@ services:
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD
-        value: wa-bot-admin
-        sync: false        # prompt the person deploying to set a strong one
+        sync: false        # Render prompts the person deploying to set a strong one
       - key: ADMIN_TOKEN
         generateValue: true
       - key: BOT_NAME

@@ -104,9 +104,11 @@ The repo ships with **`render.yaml`** (Render Blueprint) and **`railway.json`** 
 
 ### Deploy to Render (button)
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/<your-username>/whatsapp-media-bot)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/tomangamez-star/Whatsapp-media-bot)
 
 Replace `<your-username>` with your GitHub username after you push (below). The button auto-detects `render.yaml`, sets the env vars, runs the build (installs ffmpeg), and asks you for the admin password.
+
+> **Note:** `render.yaml` deliberately does **not** set `PORT` — Render injects its own `PORT` and the app binds to it (config default is 3000 when unset). Overriding `PORT` on Render breaks routing/health checks.
 
 ### 1. Create the GitHub repo & push (2 commands, once)
 

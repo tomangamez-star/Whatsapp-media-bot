@@ -3,25 +3,25 @@
 # Deploy: https://render.com/deploy?repo=<your-github-repo-url>
 # Plan: free tier (Web Service) — sleeps after 15 min idle;
 #        keep-alive pings + healthcheck below are included;
-#        for true 24/7 use the Starter plan ($7/mo) or the
-#        Cloudflare-tunnel setup in README.
+#        for true 24/7 use the Starter plan ($7/mo).
 # ============================================================
 services:
   - type: web
     name: whatsapp-media-bot
     runtime: node
     plan: free            # change to 'starter' for guaranteed 24/7
-    buildCommand: bash scripts/install-ffmpeg.sh && npm ci --omit=dev
+    buildCommand: bash scripts/install-ffmpeg.sh && npm ci --omit=dev --no-audit --no-fund
     startCommand: node src/server.js
     healthCheckPath: /api/health
     autoDeploy: true
+    nodeVersion: 20.11.1
     envVars:
       - key: NODE_ENV
         value: production
       - key: HOST
         value: 0.0.0.0
-      - key: PORT
-        value: "3000"
+      # NOTE: do NOT set PORT — Render injects its own PORT and routes
+      # traffic to it. The app binds process.env.PORT (config default 3000).
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD

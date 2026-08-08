@@ -307,42 +307,58 @@ $('#webhook-form').addEventListener('submit', async (e) => {
 
 function bootSocket () {
   if (socket) socket.close()
-  socket = io({ auth: { token } })
-  socket.on('connect', () => {
-    addFeed('success', 'Realtime channel connected')
-    socket.emit('ping', (p) => { if (p !== 'pong') addFeed('warn', 'Unexpected ping reply: ' + p) })
-  })
-  socket.on('disconnect', () => addFeed('warn', 'Realtime channel disconnected — retrying…'))
-  socket.on('session', (s) => renderSession(s))
-  socket.on('session.qr', (p) => {
-    $('#qr-img').src = p.qr
-    $('#qr-img').classList.remove('hidden')
-    $('#qr-placeholder').classList.add('hidden')
-  })
-  socket.on('session.connected', (p) => {
-    toast('WhatsApp connected ✅', 'ok')
-    addFeed('success', 'WhatsApp connected' + (p.phone ? ' as ' + p.phone : ''))
-    loadStats()
-  })
-  socket.on('session.pairingCode', (p) => {
-    $('#pair-code-text').textContent = p.code
-    $('#pair-result').classList.remove('hidden')
-  })
-  socket.on('log', (p) => addFeed(p.level || 'info', p.msg, p.at))
-  socket.on('logs', (items) => {
-    $('#feed').innerHTML = ''
-    ;(items || []).forEach((l) => addFeed(l.level || 'info', l.msg, l.at))
-  })
-  socket.on('download.progress', (p) => {
-    addFeed('info', `Download ${p.id.slice(0, 8)}… ${Math.round(p.percent)}% (${fmtBytes(p.bytes)})`)
-    if (p.percent >= 100) loadStats()
-  })
-  socket.on('download.completed', (p) => {
-    loadStats()
-    if (document.querySelector('.nav-item.active')?.dataset.view === 'history') loadHistory()
-  })
-  socket.on('download.failed', () => { loadStats() })
+  // guard: socket.io client script should now be loaded via /socket.io/socket.io.js
+  if (typeof io === 'undefined') {
+    addFeed('warn', 'Realtime socket not available — using polling fallback')
+  } else {
+    socket = io({ auth: { token } })
+    socket.on('connect', () => {
+      addFeed('success', 'Realtime channel connected')
+      socket.emit('ping', (p) => { if (p !== 'pong') addFeed('warn', 'Unexpected ping reply: ' + p) })
+    })
+    socket.on('disconnect', () => addFeed('warn', 'Realtime channel disconnected — retrying…'))
+    socket.on('session', (s) => renderSession(s))
+    socket.on('session.qr', (p) => {
+      $('#qr-img').src = p.qr
+      $('#qr-img').classList.remove('hidden')
+      $('#qr-placeholder').classList.add('hidden')
+    })
+    socket.on('session.connected', (p) => {
+      toast('WhatsApp connected ✅', 'ok')
+      addFeed('success', 'WhatsApp connected' + (p.phone ? ' as ' + p.phone : ''))
+      loadStats()
+    })
+    socket.on('session.pairingCode', (p) => {
+      $('#pair-code-text').textContent = p.code
+      $('#pair-result').classList.remove('hidden')
+    })
+    socket.on('log', (p) => addFeed(p.level || 'info', p.msg, p.at))
+    socket.on('logs', (items) => {
+      $('#feed').innerHTML = ''
+      ;(items || []).forEach((l) => addFeed(l.level || 'info', l.msg, l.at))
+    })
+    socket.on('download.progress', (p) => {
+      addFeed('info', `Download ${p.id.slice(0, 8)}… ${Math.round(p.percent)}% (${fmtBytes(p.bytes)})`)
+      if (p.percent >= 100) loadStats()
+    })
+    socket.on('download.completed', (p) => {
+      loadStats()
+      if (document.querySelector('.nav-item.active')?.dataset.view === 'history') loadHistory()
+    })
+    socket.on('download.failed', () => { loadStats() })
+  }
+  // Polling fallback — keeps the QR + pairing code LIVE even if the
+  // socket channel is down or the connection state changes. Baileys QR
+  // codes rotate/expire, so a stale QR can never be scanned.
+  if (qrPollTimer) clearInterval(qrPollTimer)
+  qrPollTimer = setInterval(async () => {
+    try {
+      const s = await api('/session')
+      renderSession(s)
+    } catch { /* auth handled by api() */ }
+  }, 5000)
 }
+let qrPollTimer = null
 
 /* ── boot ── */
 

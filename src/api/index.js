@@ -92,7 +92,7 @@ router.post('/session/pair', requireAuth, express.json(), async (req, res) => {
     if (!phone) return res.status(400).json({ error: 'phone is required (E.164, e.g. 15551234567)' })
     await connection.start()
     const code = await connection.requestPairingCode(phone)
-    res.json({ pairingCode: code, hint: 'Enter this code in WhatsApp → Linked Devices → Link with phone number instead' })
+    res.json({ pairingCode: code, hint: 'Enter this code in WhatsApp → Linked Devices → Link with phone number instead. The code refreshes live in the dashboard (5s poll).' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

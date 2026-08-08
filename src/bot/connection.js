@@ -193,11 +193,14 @@ class Connection {
   }
 
   scheduleQrRefresh () {
+    // Baileys re-emits a fresh `connection.update.qr` by itself whenever the
+    // previous code expires/rotates (~20s), and the dashboard now polls
+    // /api/session every 5s, so the QR shown is always the current one.
+    // This timer is just a safety log if a QR somehow stalls.
     clearTimeout(this.refreshTimeout)
     this.refreshTimeout = setTimeout(() => {
-      if (this.state === 'qr' && this.sock) {
-        // QR codes expire; ask Baileys to refresh by re-requesting
-        logger.debug('[conn] refreshing QR')
+      if (this.state === 'qr') {
+        logger.debug('[conn] QR still waiting — Baileys rotates it automatically')
       }
     }, 60000)
   }

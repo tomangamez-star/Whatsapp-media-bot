@@ -9,6 +9,7 @@
 const fs = require('fs')
 const path = require('path')
 const { formatBytes } = require('../utils/format')
+const logger = require('../logger')
 
 /**
  * @param {object} sock Baileys socket

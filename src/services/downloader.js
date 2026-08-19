@@ -15,7 +15,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execa } = require('yt-dlp-exec')
+const ytdlp = require('yt-dlp-exec')
 const config = require('../config')
 const logger = require('../logger')
 const bus = require('../events')
@@ -109,7 +109,7 @@ async function runYtDlp (opts) {
 
   logger.info('[dl] yt-dlp %s → %s (quality=%s)', isAudio ? 'audio' : 'video', source, qualityKey)
 
-  const proc = execa('yt-dlp', args, { reject: false })
+  const proc = ytdlp.exec(args, {}, { reject: false })
   let title = null
   let finalFile = null
   let sizeBytes = 0
@@ -152,7 +152,6 @@ async function runYtDlp (opts) {
  * Search the web (YouTube + general) for media by query and download the best hit.
  */
 async function searchAndDownload (query, type, quality, downloadId, { maxResults = 8 } = {}) {
-  const yt = require('yt-dlp-exec')
   // ytsearch: returns up to N results, we pick the first downloadable one
   const searchArgs = [
     '--no-playlist', '--no-warnings', '--no-call-home', '--flat-playlist',
@@ -160,7 +159,7 @@ async function searchAndDownload (query, type, quality, downloadId, { maxResults
   ]
   let json
   try {
-    const out = await yt.exec(searchArgs, { reject: false })
+    const out = await ytdlp.exec(searchArgs, {}, { reject: false })
     json = JSON.parse(out.stdout)
   } catch (err) {
     throw new Error(`Search failed: ${err.message}`)

@@ -276,7 +276,9 @@ class Connection {
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
         for (const msg of messages) {
-          if (msg.key.fromMe) continue
+          // Process command messages sent from the linked account too. The
+          // command handler ignores ordinary/non-command outgoing messages, so
+          // this enables owner testing without creating reply loops.
           try {
             await handleMessage(sock, msg)
           } catch (err) {

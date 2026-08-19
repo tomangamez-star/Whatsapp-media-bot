@@ -1,7 +1,7 @@
 'use strict'
 
 /* ─────────────────────────────────────────────
-   WhatsApp Media Bot — dashboard app logic
+   PANTHEON — dashboard app logic
    Auth, Socket.IO realtime, pairing, feed, history, webhook.
    Vanilla JS — no framework, no build step.
    ───────────────────────────────────────────── */
@@ -181,13 +181,7 @@ function renderSession (s) {
   } else {
     $('#pair-reg-error').classList.add('hidden')
   }
-  // anti-429 cooldown — warn BEFORE the user clicks "Get code" again
-  if (s.pairRateLimit && s.pairRateLimit.blocked) {
-    $('#pair-rate-limit').textContent = `⛔ WhatsApp rate-limit cooldown active — wait ${s.pairRateLimit.waitSec}s before the next pairing attempt. Repeated attempts extend the block (15–40 min).`
-    $('#pair-rate-limit').classList.remove('hidden')
-  } else {
-    $('#pair-rate-limit').classList.add('hidden')
-  }
+  // No local pairing cooldown. This box is used only when the real pairing request returns HTTP 429.
 }
 
 /* ── stats ── */

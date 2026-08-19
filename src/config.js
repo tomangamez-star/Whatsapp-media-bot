@@ -26,7 +26,12 @@ const config = {
   },
 
   bot: {
-    name: process.env.BOT_NAME || 'WhatsApp Media Bot',
+    name: process.env.BOT_NAME || '🅟🅐🅝🅣🅗🅔🅞🅝',
+    ownerName: process.env.OWNER_NAME || 'EMC 💀',
+    ownerNumber: String(process.env.OWNER_NUMBER || '').replace(/\D/g, ''),
+    version: process.env.BOT_VERSION || '1.1.0',
+    defaultPrefix: process.env.BOT_PREFIX || '/',
+    timezone: process.env.BOT_TIMEZONE || 'Africa/Lagos',
     // WhatsApp profile — bot only replies to chats listed here.
     // Comma separated numbers with country code, e.g. "15551234567,911234567890"
     allowedChats: (process.env.ALLOWED_CHATS || '')

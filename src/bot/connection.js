@@ -6,7 +6,7 @@
  * Responsibilities:
  *   • lazy-start socket, auto-reconnect with exponential backoff
  *   • QR code generation (base64, for the dashboard) and pairing-code flow
- *   • session persistence in ./data/session (auth-state files)
+ *   • durable Baileys auth persistence (Postgres/Supabase when DATABASE_URL is set)
  *   • emit lifecycle events to the bus (session.qr, session.connected, …)
  *   • session controls: disconnect / reconnect / logout
  *
@@ -29,13 +29,13 @@
  *      QR "age" in the status so the UI can warn when a scan is imminent.
  */
 
-const fs = require('fs')
-const path = require('path')
 const qrcode = require('qrcode')
 const config = require('../config')
 const bus = require('../events')
 const logger = require('../logger')
 const { handleMessage } = require('./commands')
+const { handleGroupParticipantsUpdate } = require('./group-features')
+const { createAuthState, clearAuthState } = require('./auth-store')
 
 // Baileys >= 6.7 is ESM-only; a static require() of it throws ERR_REQUIRE_ESM on
 // Node < 20.19 (require(esm) default). Load it lazily via dynamic import(), which
@@ -73,7 +73,10 @@ async function preloadBaileys () {
       useMultiFileAuthState: mod.useMultiFileAuthState,
       DisconnectReason: mod.DisconnectReason,
       fetchLatestBaileysVersion: mod.fetchLatestBaileysVersion,
-      Browsers: mod.Browsers
+      Browsers: mod.Browsers,
+      BufferJSON: mod.BufferJSON,
+      initAuthCreds: mod.initAuthCreds,
+      proto: mod.proto
     }
     return bw
   } finally {
@@ -101,6 +104,7 @@ class Connection {
     this.stopRequested = false
     this.pairingReady = false
     this.socketGeneration = 0
+    this.authStorage = 'unknown'
   }
 
   /** Public info for dashboard/API. */
@@ -116,7 +120,8 @@ class Connection {
       registerError: this.registerError,
       uptimeSec: this.connectedAt ? Math.floor((Date.now() - this.connectedAt) / 1000) : 0,
       version: this.version,
-      mediaQueued: this.mediaQueueSize?.() ?? 0
+      mediaQueued: this.mediaQueueSize?.() ?? 0,
+      authStorage: this.authStorage
     }
   }
 
@@ -126,10 +131,9 @@ class Connection {
     this.startedAt = Date.now()
     this.manualClose = false
     if (config.session.forceLogout) {
-      fs.rmSync(SESSION_DIR, { recursive: true, force: true })
+      await clearAuthState()
       logger.info('[conn] FORCE_LOGOUT — cleared saved session')
     }
-    fs.mkdirSync(SESSION_DIR, { recursive: true })
 
     try {
       await preloadBaileys()
@@ -153,7 +157,7 @@ class Connection {
 
     try {
       if (!bw) await preloadBaileys()
-      const { makeWASocket, useMultiFileAuthState, DisconnectReason } = bw
+      const { makeWASocket, DisconnectReason } = bw
       // Use the pinned, known-good WhatsApp Web version (BAILEYS_WA_VERSION or
       // the version bundled with Baileys 6.7.x). Avoids a flaky GitHub fetch
       // and any version mismatch during the pairing handshake.
@@ -161,7 +165,8 @@ class Connection {
       this.version = version
       logger.info('[conn] using WhatsApp Web version %s', version.join('.'))
 
-      const { state: authState, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
+      const { state: authState, saveCreds, storage } = await createAuthState(bw)
+      this.authStorage = storage
 
       const sock = makeWASocket({
         version,
@@ -273,18 +278,17 @@ class Connection {
         }
       })
 
-      sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (type !== 'notify') return
+        // Do not serialize every incoming message behind one slow AI/media task.
+        // Each message gets its own guarded handler so group replies stay snappy.
         for (const msg of messages) {
-          // Process command messages sent from the linked account too. The
-          // command handler ignores ordinary/non-command outgoing messages, so
-          // this enables owner testing without creating reply loops.
-          try {
-            await handleMessage(sock, msg)
-          } catch (err) {
-            logger.error('[msg] handler error: %s', err.message)
-          }
+          void handleMessage(sock, msg).catch((err) => logger.error('[msg] handler error: %s', err.message))
         }
+      })
+
+      sock.ev.on('group-participants.update', (update) => {
+        void handleGroupParticipantsUpdate(sock, update).catch((err) => logger.warn('[group] participant update failed: %s', err.message))
       })
 
       logger.info('[conn] socket started (attempt %s)', this.connectAttempt)
@@ -336,8 +340,7 @@ class Connection {
       try { old.end(undefined) } catch { /* ignore */ }
     }
     clearTimeout(this.refreshTimeout)
-    fs.rmSync(SESSION_DIR, { recursive: true, force: true })
-    fs.mkdirSync(SESSION_DIR, { recursive: true })
+    await clearAuthState()
     this.state = 'idle'
     this.qr = null
     this.qrAt = null
@@ -435,7 +438,7 @@ class Connection {
       try { this.sock.end(undefined) } catch { /* ignore */ }
       this.sock = null
     }
-    fs.rmSync(SESSION_DIR, { recursive: true, force: true })
+    await clearAuthState()
     this.state = 'idle'
     this.phone = null
     this.qr = null

@@ -32,37 +32,8 @@ const TOKEN_HEADER = 'x-access-token'
 /* token table (in-memory, regenerated per boot; also check ADMIN_TOKEN) */
 const tokens = new Set()
 
-// ⛔ Anti-429 pairing guard: WhatsApp rate-limits pairing requests hard (HTTP
-// 429 "rate-overlimit", persists ~15–40 min after repeated attempts — Baileys
-// #2008, #1761). Repeatedly clicking "Get code" from a datacenter IP is the
-// #1 way to get the number/device temporarily blocked, which is exactly the
-// "code generates but WhatsApp won't link" symptom. Enforce a cooldown window
-// between pairing attempts and surface a clear "wait" message instead of
-// silently letting the user hammer the endpoint.
-const PAIR_COOLDOWN_MS = parseInt(process.env.PAIR_COOLDOWN_MS || '60000', 10)
-const PAIR_MAX_ATTEMPTS = parseInt(process.env.PAIR_MAX_ATTEMPTS || '3', 10)
-const PAIR_WINDOW_MS = parseInt(process.env.PAIR_WINDOW_MS || '3600000', 10) // 1h
-const pairAttempts = [] // timestamps of recent pairing attempts (in-memory)
-
-function checkPairRateLimit () {
-  const now = Date.now()
-  while (pairAttempts.length && now - pairAttempts[0] > PAIR_WINDOW_MS) pairAttempts.shift()
-  if (pairAttempts.length) {
-    const waitMs = PAIR_COOLDOWN_MS - (now - pairAttempts[pairAttempts.length - 1])
-    if (waitMs > 0) {
-      return { blocked: true, waitSec: Math.ceil(waitMs / 1000) }
-    }
-  }
-  if (pairAttempts.length >= PAIR_MAX_ATTEMPTS) {
-    const oldest = pairAttempts[0]
-    const waitMs = PAIR_WINDOW_MS - (now - oldest)
-    if (waitMs > 0) {
-      return { blocked: true, waitSec: Math.ceil(waitMs / 1000), window: true }
-    }
-  }
-  pairAttempts.push(now)
-  return { blocked: false }
-}
+// Pairing requests are not locally rate-limited. If WhatsApp/Baileys returns
+// HTTP 429, that real upstream response is surfaced by POST /session/pair.
 
 function createToken () {
   const t = crypto.randomBytes(24).toString('hex')
@@ -116,23 +87,11 @@ router.post('/auth/login', express.json(), (req, res) => {
 })
 
 router.get('/session', requireAuth, (req, res) => {
-  const st = connection.status()
-  st.pairRateLimit = checkPairRateLimit()
-  res.json(st)
+  res.json(connection.status())
 })
 
 router.post('/session/pair', requireAuth, express.json(), async (req, res) => {
   try {
-    // Anti-429 guard: enforce a cooldown between pairing attempts so the number
-    // doesn't get rate-limited/blocked by WhatsApp (the #1 cause of "code
-    // generates but won't link" from a datacenter IP).
-    const limit = checkPairRateLimit()
-    if (limit.blocked) {
-      const msg = limit.window
-        ? `Pairing is temporarily rate-limited by WhatsApp. You've reached ${PAIR_MAX_ATTEMPTS} attempts in the last hour — wait ${Math.ceil(limit.waitSec / 60)} min before trying again. Repeated attempts extend the block (15–40 min).`
-        : `Please wait ${limit.waitSec}s between pairing attempts — WhatsApp rate-limits pairing requests and repeated clicks trigger a temporary block (HTTP 429, 15–40 min).`
-      return res.status(429).json({ error: msg, retryAfterSec: limit.waitSec })
-    }
     const { phone } = req.body || {}
     // Accept "+2347074455500", "2347074455500", "002347074455500" or national
     // format "07074455500" (resolved via DEFAULT_COUNTRY_CODE). Always sent to
@@ -150,10 +109,10 @@ router.post('/session/pair', requireAuth, express.json(), async (req, res) => {
     const boom = err?.output?.statusCode ? err : (err?.error?.output ? err.error : null)
     const status = boom?.output?.statusCode
     const detail = boom?.output?.payload?.message || err?.message || String(err)
-    // Surface WhatsApp's verdict directly — 429 rate-overlimit, 401 rejected,
-    // 428 too-early — with a human-readable wait hint instead of a generic 500.
+    // Surface WhatsApp/Baileys' real verdict directly. Do not infer a cooldown
+    // or convert unrelated 401 errors into a made-up rate-limit message.
     if (status === 429 || /rate[- ]?overlimit|rate[- ]?limit/i.test(String(detail))) {
-      return res.status(429).json({ error: `WhatsApp is rate-limiting pairing for this number/IP (HTTP 429). Wait 15–40 minutes before retrying — repeated attempts extend the block. Detail: ${detail.slice(0, 200)}`, retryAfterSec: 900 })
+      return res.status(429).json({ error: `WhatsApp returned HTTP 429 while requesting the pairing code. This is the real upstream response, not a local cooldown. Detail: ${detail.slice(0, 200)}` })
     }
     res.status(status >= 400 && status < 600 ? status : 500).json({ error: err.message })
   }

@@ -99,6 +99,8 @@ class Connection {
     this.phone = null
     this.refreshTimeout = null
     this.stopRequested = false
+    this.pairingReady = false
+    this.socketGeneration = 0
   }
 
   /** Public info for dashboard/API. */
@@ -145,6 +147,8 @@ class Connection {
     this.state = this.connectAttempt === 1 ? 'connecting' : 'reconnecting'
     this.qr = null
     this.pairingCode = null
+    this.pairingReady = false
+    const generation = ++this.socketGeneration
     bus.emitSafe('session.status', { state: this.state, at: new Date().toISOString() })
 
     try {
@@ -162,7 +166,7 @@ class Connection {
       const sock = makeWASocket({
         version,
         auth: authState,
-        browser: ['Chrome (Linux)', 'Chrome', '119.0.0.0'],
+        browser: bw.Browsers.ubuntu('Chrome'),
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false,
         markOnlineOnConnect: true,
@@ -186,6 +190,9 @@ class Connection {
       sock.ev.on('creds.update', saveCreds)
 
       sock.ev.on('connection.update', async (update) => {
+        // A socket that was replaced by reconnect/reset may still emit a late
+        // close event. Never let that stale event tear down the new socket.
+        if (generation !== this.socketGeneration || this.sock !== sock) return
         const { connection, lastDisconnect, qr, registerError } = update
         // A failed registration attempt (QR/pairing rejected by WA) — surface the
         // REAL reason (e.g. 429 rate-overlimit, 401 bad session) instead of a blind
@@ -200,6 +207,7 @@ class Connection {
           logger.error('[conn] registerError: %s', this.registerError.reason)
         }
         if (qr) {
+          this.pairingReady = true
           // Keep a fresh QR on screen, but never clobber an active pairing flow.
           if (this.state !== 'pairing') {
             this.state = 'qr'
@@ -212,6 +220,7 @@ class Connection {
           this.scheduleQrRefresh()
         }
         if (connection === 'open') {
+          this.pairingReady = true
           this.state = 'connected'
           this.connectedAt = Date.now()
           this.phone = sock.user?.id?.split(':')[0] || null
@@ -224,77 +233,42 @@ class Connection {
           logger.info('[conn] connected as %s', this.phone || 'unknown')
         }
         if (connection === 'close') {
-          // ══ DIAGNOSTIC CORE ═══════════════════════════════════════════════════════════════
-          // The REAL reason a scan/pairing fails is in this disconnect detail.
-          // Surfacing it (statusCode + full boom payload) is what lets us see
-          // 401 (stream/registration rejection — WhatsApp refusing the pairing
-          // handshake, typically after repeated attempts from a datacenter IP),
-          // 428 (pairing too early), 429 (rate-limit), 515 (restart required), etc.
-          //
-          // IMPORTANT SEMANTICS: `CB:failure` maps the raw HTTP statusCode from
-          // WhatsApp (socket.js line ~513): `end(new Boom('Connection Failure',
-          // { statusCode: reason }))`. A 401 here is a STREAM failure — WhatsApp
-          // rejected the connection/registration — NOT a user logout, even though
-          // DisconnectReason[401] is named "loggedOut". A genuine logout arrives
-          // via `creds.update` (loggedOut emitted), not through CB:failure.
           const boomErr = lastDisconnect?.error
           const code = boomErr?.output?.statusCode
-          const reason = DisconnectReason[code] || code || 'unknown'
           let detail = ''
           try { detail = boomErr?.output?.payload?.message || boomErr?.message || '' } catch { /* ignore */ }
+
+          let reason = DisconnectReason[code] || code || 'unknown'
+          if (code === 429) reason = 'WhatsApp HTTP 429 (rate limit)'
+          if (code === 401) reason = 'WhatsApp 401 (session rejected/logged out)'
+
           this.lastDisconnect = { code, reason, detail, at: new Date().toISOString() }
           this.state = 'disconnected'
           this.qr = null
           this.pairingCode = null
+          this.pairingReady = false
           this.sock = null
           bus.emitSafe('session.disconnected', { code, reason, detail, at: new Date().toISOString() })
           bus.emitSafe('session.status', { state: 'disconnected', reason, detail, at: new Date().toISOString() })
-          logger.warn(
-            '[conn] disconnected — statusCode=%s reason=%s%s',
-            code ?? '?',
-            reason,
-            detail ? ` detail="${detail}"` : ''
-          )
+          logger.warn('[conn] disconnected — statusCode=%s reason=%s%s', code ?? '?', reason, detail ? ` detail="${detail}"` : '')
 
-          // 🔑 REAL-VERDICT LABELING: the enum name for 401 ("loggedOut") is
-          // misleading here. When the disconnect arrives through a stream error /
-          // CB:failure (detail "Connection Failure"), 401 means WhatsApp REJECTED
-          // the pairing/registration handshake — the classic fingerprint of a
-          // temporary rate-limit or IP-level block after repeated attempts, NOT a
-          // user logout and NOT a corrupt session. 429 is the explicit
-          // rate-overlimit verdict. Both require waiting (15–40 min) — no code fix
-          // can bypass them; hammering retries only extends the block.
-          const isStreamFailure = /connection failure|stream errored/i.test(String(detail))
-          const isRateLimited = code === 429 || (isStreamFailure && code === 401)
-          if (isRateLimited) {
-            this.lastDisconnect.reason = 'rate-limited (WA rejected pairing — wait 15–40 min, then retry once)'
-            logger.warn('[conn] ⚠️ rate-limit / registration-rejection detected (code=%s) — waiting out the block before next attempt', code)
-          }
+          // Do not invent a rate-limit from a 401. A real upstream 429 is left
+          // visible as 429. A 401 is treated as a rejected/stale session; a new
+          // pairing request will clear the auth directory and start fresh.
+          if (code === 401) this.loggedOut = true
 
-          // IMPORTANT: 401 from a *stream error* is DisconnectReason.badSession —
-          // WhatsApp rejected the (corrupt/stale) session creds, NOT a user logout.
-          // We must NOT wipe the session or stop retrying for it: the correct
-          // recovery is to delete the stale creds and re-pair with a fresh QR.
-          // Only a genuine logout (loggedOut emitted via creds.update, i.e. the
-          // phone removed the device) wipes the session and stops.
-          const isBadSession = code === DisconnectReason.badSession
-          if (isBadSession) {
-            logger.warn('[conn] bad session (401) — clearing stale creds so a fresh QR can be generated')
-            try { fs.rmSync(path.join(SESSION_DIR, 'creds.json'), { force: true }) } catch { /* ignore */ }
-          }
-
-          const shouldReconnect = !this.manualClose && !this.stopRequested && code !== DisconnectReason.loggedOut
+          // Never auto-hammer WhatsApp after an actual 429 or a rejected 401.
+          // Other transient disconnects keep the normal reconnect behavior.
+          const shouldReconnect = !this.manualClose && !this.stopRequested && code !== 401 && code !== 429
           if (shouldReconnect) {
-            // Back off much longer after a 429/401 stream rejection (rate-limit /
-            // temporary IP block) so we don't hammer WA and extend the ban.
-            const base = isRateLimited ? 60000 : 2000
-            const delay = Math.min(300000, base * Math.pow(2, Math.min(this.connectAttempt, 4)))
-            logger.info('[conn] reconnecting in %sms (attempt %s)%s', delay, this.connectAttempt + 1, isRateLimited ? ' — waiting out rate-limit, do NOT retry pairing yet' : '')
-            setTimeout(() => this.connect(), delay)
-          } else if (code === DisconnectReason.loggedOut && !isStreamFailure) {
-            this.loggedOut = true
-            fs.rmSync(SESSION_DIR, { recursive: true, force: true })
-            logger.warn('[conn] logged out — session cleared')
+            const delay = Math.min(30000, 2000 * Math.pow(2, Math.min(this.connectAttempt, 4)))
+            const expectedGeneration = this.socketGeneration
+            logger.info('[conn] reconnecting in %sms (attempt %s)', delay, this.connectAttempt + 1)
+            setTimeout(() => {
+              if (!this.stopRequested && !this.manualClose && this.socketGeneration === expectedGeneration && !this.sock) {
+                this.connect().catch((err) => logger.error('[conn] reconnect failed: %s', err.message))
+              }
+            }, delay)
           }
         }
       })
@@ -334,28 +308,68 @@ class Connection {
     }, 60000)
   }
 
+  /** Wait until the fresh socket has reached registration readiness. */
+  async waitForPairingReady (timeoutMs = 12000) {
+    const started = Date.now()
+    while (Date.now() - started < timeoutMs) {
+      if (this.state === 'connected') return
+      if (this.sock && this.pairingReady) return
+      if (!this.sock && this.lastDisconnect) {
+        const code = this.lastDisconnect.code
+        throw new Error(`WhatsApp socket closed before pairing was ready${code ? ` (HTTP ${code})` : ''}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    }
+    throw new Error('WhatsApp socket was not ready for pairing in time. Try Get code again once.')
+  }
+
+  /** Clear stale/rejected auth and create a genuinely fresh pairing socket. */
+  async resetForPairing (reason = 'fresh pairing requested') {
+    logger.info('[conn] resetting auth for fresh pairing (%s)', reason)
+    this.manualClose = true
+    this.socketGeneration++
+    const old = this.sock
+    this.sock = null
+    if (old) {
+      try { old.end(undefined) } catch { /* ignore */ }
+    }
+    clearTimeout(this.refreshTimeout)
+    fs.rmSync(SESSION_DIR, { recursive: true, force: true })
+    fs.mkdirSync(SESSION_DIR, { recursive: true })
+    this.state = 'idle'
+    this.qr = null
+    this.qrAt = null
+    this.pairingCode = null
+    this.pairingReady = false
+    this.phone = null
+    this.lastDisconnect = null
+    this.registerError = null
+    this.loggedOut = false
+    this.connectAttempt = 0
+    this.stopRequested = false
+    this.manualClose = false
+    await this.connect()
+  }
+
   /** Request a pairing code (replaces QR flow). Returns the code string. */
   async requestPairingCode (phone) {
-    if (!this.sock) throw new Error('Socket not started')
-    // E.164 WITHOUT "+" and WITHOUT leading zeros — e.g. "2347074455500".
-    // (Normalization happens in the API layer; double-guard here.)
     const number = String(phone).replace(/[^\d]/g, '').replace(/^0+/, '')
     if (number.length < 8) throw new Error('Enter a valid phone number with country code (E.164)')
 
-    // Guard: pairing must only happen once the socket is live/ready. Calling
-    // requestPairingCode() while the websocket is still handshaking yields
-    // HTTP 428 "Precondition Required / Connection Closed" from WhatsApp.
-    // waitForConnectionUpdate resolves on the NEXT connection.update — we
-    // already saw 'connecting' (emitted on socket open), so a brief timeout
-    // here guarantees the sendNode() below has a live channel.
-    try {
-      await this.sock.waitForConnectionUpdate((u) => u.connection === 'connecting' || u.connection === 'open', 8000)
-    } catch (e) {
-      logger.warn('[conn] pairing: socket not ready yet (%s) — proceeding anyway', e?.message || e)
+    // If the previous socket ended with 401/loggedOut, do not reuse that auth
+    // state. Start from a clean auth directory before asking WhatsApp for code.
+    if (this.loggedOut || Number(this.lastDisconnect?.code) === 401) {
+      await this.resetForPairing('previous session returned 401/loggedOut')
+    } else if (!this.sock) {
+      await this.start()
     }
+
+    await this.waitForPairingReady()
+    if (!this.sock) throw new Error('Socket not started')
 
     this.state = 'pairing'
     this.qr = null
+    this.registerError = null
     try {
       const code = await this.sock.requestPairingCode(number)
       this.pairingCode = code
@@ -365,16 +379,16 @@ class Connection {
       logger.info('[conn] pairing code issued for %s', number)
       return code
     } catch (err) {
-      // Surface the REAL error (428 precondition, 429 rate-limit, 401 …) so the
-      // dashboard can show why pairing failed instead of a silent hang.
       const boom = err?.output?.statusCode ? err : (err?.error?.output ? err.error : null)
       const code = boom?.output?.statusCode
       const detail = boom?.output?.payload?.message || err?.message || String(err)
-      const reason = code ? `${code} ${detail}` : detail
-      this.lastDisconnect = { code, reason: reason.slice(0, 200), detail: reason.slice(0, 400), at: new Date().toISOString() }
+      const label = code ? `HTTP ${code}: ${detail}` : detail
+      this.lastDisconnect = { code, reason: label.slice(0, 200), detail: label.slice(0, 400), at: new Date().toISOString() }
       this.registerError = { code: code ?? 'unknown', reason: detail.slice(0, 300), at: new Date().toISOString() }
-      logger.error('[conn] requestPairingCode failed: %s', reason)
-      throw new Error(`Pairing failed (${reason.slice(0, 200)})`)
+      logger.error('[conn] requestPairingCode failed: %s', label)
+      const wrapped = new Error(`Pairing failed (${label.slice(0, 200)})`)
+      if (code) wrapped.output = { statusCode: code, payload: { message: detail } }
+      throw wrapped
     }
   }
 
@@ -384,10 +398,12 @@ class Connection {
     this.state = 'disconnected'
     this.qr = null
     this.pairingCode = null
-    if (this.sock) {
-      try { await this.sock.logout() } catch { /* ignore */ }
-      try { this.sock.end(undefined) } catch { /* ignore */ }
-      this.sock = null
+    this.pairingReady = false
+    this.socketGeneration++
+    const sock = this.sock
+    this.sock = null
+    if (sock) {
+      try { sock.end(undefined) } catch { /* ignore */ }
     }
     bus.emitSafe('session.status', { state: 'disconnected', reason: 'manual', at: new Date().toISOString() })
   }
@@ -396,17 +412,22 @@ class Connection {
   async reconnect () {
     this.manualClose = false
     this.stopRequested = false
-    if (this.sock) {
-      try { this.sock.end(undefined) } catch { /* ignore */ }
-      this.sock = null
+    this.socketGeneration++
+    const old = this.sock
+    this.sock = null
+    if (old) {
+      try { old.end(undefined) } catch { /* ignore */ }
     }
     this.connectAttempt = 0
+    this.lastDisconnect = null
+    this.loggedOut = false
     await this.connect()
   }
 
   /** Logout + wipe session. */
   async logout () {
     this.manualClose = true
+    this.socketGeneration++
     if (this.sock) {
       try { await this.sock.logout() } catch { /* ignore */ }
       try { this.sock.end(undefined) } catch { /* ignore */ }
@@ -423,10 +444,14 @@ class Connection {
   async stop () {
     this.stopRequested = true
     this.manualClose = true
+    this.socketGeneration++
     clearTimeout(this.refreshTimeout)
-    if (this.sock) {
-      try { await this.sock.logout() } catch { /* ignore */ }
-      try { this.sock.end(undefined) } catch { /* ignore */ }
+    const sock = this.sock
+    this.sock = null
+    if (sock) {
+      // Process shutdown/redeploy must close transport only. Calling logout()
+      // here would unlink the saved WhatsApp session on every Render restart.
+      try { sock.end(undefined) } catch { /* ignore */ }
     }
   }
 }

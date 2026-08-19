@@ -58,7 +58,7 @@ function pushLog (entry) {
   logRing.push(entry)
   if (logRing.length > 500) logRing.shift()
 }
-bus.on('command', (p) => pushLog({ level: 'info', msg: `Command .${p.command} from ${p.sender.split('@')[0]}: ${p.args || '(no args)'}`, at: p.at }))
+bus.on('command', (p) => pushLog({ level: 'info', msg: `Command ${p.command} from ${p.sender.split('@')[0]}: ${p.args || '(no args)'}`, at: p.at }))
 bus.on('download.completed', (p) => {
   const d = db.getDownload(p.downloadId)
   pushLog({ level: 'info', msg: `Download completed: ${d?.title || p.downloadId}`, at: new Date().toISOString() })
@@ -74,6 +74,7 @@ router.get('/health', (req, res) => {
     memory: process.memoryUsage().rss,
     node: process.version,
     db: db.mode,
+    persistence: db.persistence,
     session: connection.status()
   })
 })

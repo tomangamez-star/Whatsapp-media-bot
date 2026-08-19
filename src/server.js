@@ -67,7 +67,7 @@ bus.on('session.qr', (p) => broadcast('session.qr', p))
 bus.on('session.connected', (p) => { broadcast('session.connected', p); broadcast('log', { level: 'success', msg: `Bot connected as ${p.phone || 'unknown'}`, at: p.at }) })
 bus.on('session.disconnected', (p) => broadcast('log', { level: 'warn', msg: `Disconnected (${p.reason})`, at: p.at }))
 bus.on('session.pairingCode', (p) => broadcast('session.pairingCode', p))
-bus.on('command', (p) => broadcast('log', { level: 'info', msg: `Command .${p.command} from ${p.sender.split('@')[0]}${p.args ? ': ' + p.args : ''}`, at: p.at }))
+bus.on('command', (p) => broadcast('log', { level: 'info', msg: `Command ${p.command} from ${p.sender.split('@')[0]}${p.args ? ': ' + p.args : ''}`, at: p.at }))
 bus.on('download.progress', (p) => {
   const d = db.getDownload(p.downloadId)
   if (d) broadcast('download.progress', { id: p.downloadId, percent: p.percent, bytes: p.bytes, type: d.type })
@@ -120,6 +120,7 @@ async function shutdown (signal) {
   logger.info('[server] shutting down (%s)', signal)
   clearInterval(keepaliveTimer)
   await connection.stop()
+  try { await db.closePersistent?.() } catch (err) { logger.warn('[server] Postgres close failed: %s', err.message) }
   io.close()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 3000).unref()
@@ -129,7 +130,7 @@ async function shutdown (signal) {
 
 server.listen(config.server.port, config.server.host, () => {
   logger.info('┌─────────────────────────────────────────────┐')
-  logger.info('│  WhatsApp Media Bot — dashboard ready       │')
+  logger.info('│  PANTHEON — dashboard ready                 │')
   logger.info('│  http://%s:%s  │', config.server.host === '0.0.0.0' ? 'localhost' : config.server.host, config.server.port)
   logger.info('│  login: %s / %s            │', config.auth.username, config.auth.password)
   logger.info('└─────────────────────────────────────────────┘')
@@ -137,13 +138,14 @@ server.listen(config.server.port, config.server.host, () => {
   startKeepalive()
   startCleanup()
 
-  // auto-connect WhatsApp (reuses saved session, or shows QR in dashboard)
-  connection.start()
-    .then(() => {
-      const wh = getWebhookConfig()
-      if (wh.enabled) logger.info('[webhook] enabled → %s', wh.url)
-    })
-    .catch((err) => logger.error('[conn] failed to start: %s', err.message))
+  // Hydrate persistent settings first, then restore the complete Baileys auth
+  // state from Postgres/Supabase (when DATABASE_URL is configured).
+  ;(async () => {
+    if (process.env.DATABASE_URL) await db.initPersistent()
+    await connection.start()
+    const wh = getWebhookConfig()
+    if (wh.enabled) logger.info('[webhook] enabled → %s', wh.url)
+  })().catch((err) => logger.error('[boot] persistence/connection startup failed: %s', err.message))
 })
 
 process.on('SIGINT', () => shutdown('SIGINT'))

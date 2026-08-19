@@ -12,6 +12,7 @@ const path = require('path')
 const crypto = require('crypto')
 const config = require('./config')
 const logger = require('./logger')
+const postgres = require('./services/postgres')
 
 const DATA_DIR = config.data.dir
 fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -90,6 +91,55 @@ function readJson (name) {
 
 function writeJson (name, data) {
   fs.writeFileSync(jsonFiles[name], JSON.stringify(data, null, 2))
+}
+
+/* ───────────────────── persistent settings mirror ───────────────────── */
+
+let persistentReady = false
+
+function readLocalSetting (key) {
+  if (mode === 'sqlite') {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
+    return row ? row.value : null
+  }
+  const all = readJson('settings')
+  return all[key] !== undefined ? all[key] : null
+}
+
+function writeLocalSetting (key, value) {
+  if (mode === 'sqlite') {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value))
+  } else {
+    const all = readJson('settings')
+    all[key] = String(value)
+    writeJson('settings', all)
+  }
+}
+
+async function initPersistentSettings () {
+  if (!postgres.enabled()) return false
+  await postgres.init()
+  await postgres.query(`
+    CREATE TABLE IF NOT EXISTS pantheon_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const result = await postgres.query('SELECT key, value FROM pantheon_settings')
+  for (const row of result.rows) writeLocalSetting(row.key, row.value ?? '')
+  persistentReady = true
+  logger.info('[db] hydrated %s persistent settings from Postgres', result.rowCount)
+  return true
+}
+
+function mirrorSetting (key, value) {
+  if (!postgres.enabled()) return
+  postgres.query(`
+    INSERT INTO pantheon_settings (key, value, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `, [String(key), String(value)]).catch((err) => logger.warn('[db] setting mirror failed for %s: %s', key, err.message))
 }
 
 /* ─────────────────────────── public API ─────────────────────────── */
@@ -225,23 +275,31 @@ const store = {
   /* ----- settings ----- */
 
   getSetting (key) {
-    if (mode === 'sqlite') {
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
-      return row ? row.value : null
-    }
-    const all = readJson('settings')
-    return all[key] !== undefined ? all[key] : null
+    return readLocalSetting(key)
   },
 
   setSetting (key, value) {
-    if (mode === 'sqlite') {
-      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value))
-    } else {
-      const all = readJson('settings')
-      all[key] = String(value)
-      writeJson('settings', all)
-    }
+    writeLocalSetting(key, value)
+    mirrorSetting(key, value)
     return value
+  },
+
+  async initPersistent () {
+    try {
+      return await initPersistentSettings()
+    } catch (err) {
+      persistentReady = false
+      logger.error('[db] Postgres persistence initialization failed: %s', err.message)
+      throw err
+    }
+  },
+
+  async closePersistent () {
+    await postgres.close()
+  },
+
+  get persistence () {
+    return { configured: postgres.enabled(), ready: persistentReady, ...postgres.status() }
   }
 }
 

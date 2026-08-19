@@ -10,6 +10,8 @@ const ROOT = path.join(__dirname, '..')
 
 const bool = (v, dflt = false) => (v === undefined || v === '' ? dflt : String(v).toLowerCase() === 'true' || String(v) === '1')
 
+const nullableBool = (v) => (v === undefined || v === '' ? null : bool(v, false))
+
 const config = {
   root: ROOT,
 
@@ -25,11 +27,17 @@ const config = {
     sessionTtlDays: 30
   },
 
+  database: {
+    url: (process.env.DATABASE_URL || '').trim(),
+    ssl: nullableBool(process.env.DATABASE_SSL),
+    poolMax: Math.max(1, parseInt(process.env.DATABASE_POOL_MAX || '5', 10))
+  },
+
   bot: {
     name: process.env.BOT_NAME || '🅟🅐🅝🅣🅗🅔🅞🅝',
     ownerName: process.env.OWNER_NAME || 'EMC 💀',
     ownerNumber: String(process.env.OWNER_NUMBER || '').replace(/\D/g, ''),
-    version: process.env.BOT_VERSION || '1.1.0',
+    version: process.env.BOT_VERSION || '1.2.0',
     defaultPrefix: process.env.BOT_PREFIX || '/',
     timezone: process.env.BOT_TIMEZONE || 'Africa/Lagos',
     // WhatsApp profile — bot only replies to chats listed here.
@@ -45,7 +53,10 @@ const config = {
     defaultQuality: process.env.DEFAULT_QUALITY || '720',
     maxFileSizeMb: parseInt(process.env.MAX_FILE_SIZE_MB || '1900', 10),
     cleanupAfterMinutes: parseInt(process.env.CLEANUP_AFTER_MINUTES || '120', 10),
-    mediaDir: process.env.MEDIA_DIR || path.join(ROOT, 'data', 'media')
+    mediaDir: process.env.MEDIA_DIR || path.join(ROOT, 'data', 'media'),
+    ytdlpCookiesFile: (process.env.YTDLP_COOKIES_FILE || '').trim(),
+    ytdlpCookiesBase64: (process.env.YTDLP_COOKIES_B64 || '').trim(),
+    proxyUrl: (process.env.YTDLP_PROXY_URL || '').trim()
   },
 
   session: {
@@ -68,6 +79,13 @@ const config = {
   data: {
     dir: process.env.DATA_DIR || path.join(ROOT, 'data'),
     dbFile: path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'media-bot.db')
+  },
+
+  ai: {
+    cooldownMs: Math.max(3000, parseInt(process.env.AI_COOLDOWN_MS || '12000', 10)),
+    timeoutMs: Math.max(5000, parseInt(process.env.AI_TIMEOUT_MS || '30000', 10)),
+    maxTokens: Math.max(64, parseInt(process.env.AI_MAX_TOKENS || '300', 10)),
+    maxReplyChars: Math.max(300, parseInt(process.env.AI_MAX_REPLY_CHARS || '1200', 10))
   },
 
   webhook: {

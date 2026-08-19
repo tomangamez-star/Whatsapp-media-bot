@@ -39,7 +39,31 @@ services:
       - key: BAILEYS_WA_VERSION
         value: "2.3000.1043857760"
       - key: BOT_NAME
-        value: WhatsApp Media Bot
+        value: "🅟🅐🅝🅣🅗🅔🅞🅝"
+      - key: BOT_VERSION
+        value: "1.2.0"
+      - key: BOT_PREFIX
+        value: "/"
+      - key: BOT_TIMEZONE
+        value: Africa/Lagos
+      - key: OWNER_NAME
+        value: "EMC 💀"
+      # Durable Baileys auth + group settings. Paste the Supabase Postgres
+      # connection string in Render Environment; never commit it.
+      - key: DATABASE_URL
+        sync: false
+      - key: WA_SESSION_ID
+        value: pantheon-main
+      - key: DATABASE_POOL_MAX
+        value: "5"
+      # Optional AI provider for /ai on
+      - key: GROQ_API_KEY
+        sync: false
+      # Optional yt-dlp authentication/proxy for YouTube datacenter challenges.
+      - key: YTDLP_COOKIES_B64
+        sync: false
+      - key: YTDLP_PROXY_URL
+        sync: false
       - key: MAX_CONCURRENT_DOWNLOADS
         value: "2"
       - key: DEFAULT_QUALITY

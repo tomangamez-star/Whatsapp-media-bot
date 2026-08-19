@@ -1,7 +1,7 @@
 {
-  "name": "whatsapp-media-bot",
-  "version": "1.0.0",
-  "description": "WhatsApp media downloader bot (Baileys + yt-dlp) with realtime management dashboard",
+  "name": "pantheon-media-bot",
+  "version": "1.2.0",
+  "description": "PANTHEON WhatsApp media, group moderation and AI bot (Baileys + yt-dlp) with management dashboard",
   "main": "src/server.js",
   "type": "commonjs",
   "engines": {
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/config.js && node --check src/events.js && node --check src/db.js && node --check src/logger.js && node --check src/utils/format.js && node --check src/utils/queue.js && node --check src/bot/connection.js && node --check src/bot/commands.js && node --check src/services/downloader.js && node --check src/services/sender.js && node --check src/services/webhooks.js && node --check src/api/index.js",
+    "check": "node --check src/server.js && node --check src/config.js && node --check src/events.js && node --check src/db.js && node --check src/logger.js && node --check src/utils/format.js && node --check src/utils/queue.js && node --check src/bot/connection.js && node --check src/bot/auth-store.js && node --check src/bot/commands.js && node --check src/bot/group-features.js && node --check src/services/postgres.js && node --check src/services/ai.js && node --check src/services/downloader.js && node --check src/services/sender.js && node --check src/services/webhooks.js && node --check src/api/index.js",
     "test:downloader": "node scripts/test-downloader.js"
   },
   "keywords": [
@@ -32,7 +32,8 @@
     "pino": "^9.4.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.7.5",
-    "yt-dlp-exec": "^1.0.2"
+    "yt-dlp-exec": "^1.0.2",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "pino-pretty": "^11.2.2"
